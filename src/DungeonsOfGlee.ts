@@ -6,41 +6,54 @@ import { GameEvent, GameState, GameUpdate, STEP_TIME } from "./logic";
 import { Actor } from "./actor";
 import { getActorAt, getActorById, getDoorAt, getDungeonById, getRoomAt } from "./dungeon";
 import { PlayerClass, PlayerInfo } from "./player";
+import { InputEventListener, TileSet, centerText, drawImage, drawRect, drawText, drawTile, fillRect, loadTileSet, popState, pushState, registerInputEventListener, screenHeight, screenWidth, setAlpha, translate, updateGraphics } from "./renderer/graphics";
+import { intersects } from "./renderer/util";
+import { Sound, loadSound, playSound } from "./renderer/sound";
 
+/**
+ * Dungeons of Glee
+ * 
+ * A very simple dungeon crawler game to try out the Rune SDK (https://rune.ai). I wanted to give it 
+ * a go so this is a very quick hack of a dungeon game to see what its all about.
+ */
+
+// tileset references to the different wall tops and sides to be displayed - the duplicated
+// values are to increase the probability of that type of tile.
 const WALL_TOPS = [92, 92, 92, 92, 92, 92, 93, 94, 95];
 const WALL_FRONTS = [100, 100, 100, 100, 100, 100, 101, 102, 103];
 
+// Definition of the type of character the player can choose
 interface PlayerClassDef {
     icon: number;
     name: string;
     type: PlayerClass;
 }
 
-interface Sound {
-    buffer?: AudioBuffer;
-    data?: ArrayBuffer;
-}
-
-function intersects(x: number, y: number, x1: number, y1: number, width: number, height: number): boolean {
-    return (x >= x1 && y >= y1 && x < x1 + width && y < y1 + height);
-}
-
-export class DungeonsOfGlee {
-    canvas: HTMLCanvasElement;
-    ctx: CanvasRenderingContext2D;
-    tiles: HTMLImageElement;
-    resourcesToLoad = 0;
+// The actual game running ont he client
+export class DungeonsOfGlee implements InputEventListener {
+    // the main set of graphics we're using for everything
+    tiles: TileSet;
+    // the images loaded for the player's avatars
     playerAvatars: Record<string, HTMLImageElement> = {};
+
+    // state maintained between clients
     game?: GameState;
-    localPlayerId?: string;
-    anim = 0;
     state?: GameUpdate;
+    localPlayerId?: string;
+
+    // an animation ticker
+    anim = 0;
+
+    // the offset for the camera view of the world
     offsetx = 0;
     offsety = 0;
-    tileSize = 48;
-    moving = false;
-    audioContext: AudioContext = new AudioContext();
 
+    // the size we're rendering the dungeon tiles at
+    tileSize = 48;
+    // true if we're in the middle of completing a move
+    moving = false;
+
+    // the list of player characters that can be used
     classes: PlayerClassDef[] = [
         { icon: 0, name: "Dwarf", type: "dwarf" },
         { icon: 1, name: "Witch", type: "witch" },
@@ -48,24 +61,25 @@ export class DungeonsOfGlee {
         { icon: 3, name: "Knight", type: "knight" },
     ];
 
+    // sound effect for door opening
     sfxDoor: Sound;
+    // sound effect for taking a step
     sfxStep: Sound;
 
     constructor() {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        this.canvas = document.getElementById("gamecanvas")! as HTMLCanvasElement;
-        this.ctx = this.canvas.getContext("2d") as CanvasRenderingContext2D;
-        this.tiles = this.loadImage(tiles);
-        this.sfxDoor = this.loadSound(sfxDoorUrl);
-        this.sfxStep = this.loadSound(sfxStepUrl);
+        // register ourselves as the input listener so
+        // we get nofified of mouse presses
+        registerInputEventListener(this);
 
-        this.canvas.addEventListener("mouseup", (event) => {
-            this.mouseDown(event.x, event.y);
-        });
-
-        this.audioContext.resume();
+        // load all the resources. note that all of these
+        // are async - so we may end up with empty images/sounds
+        // for a while
+        this.tiles = loadTileSet(tiles, 64, 64);
+        this.sfxDoor = loadSound(sfxDoorUrl);
+        this.sfxStep = loadSound(sfxStepUrl);
     }
 
+    // get the icon to use for a given player class
     iconForClass(type: PlayerClass): number {
         const def = this.classes.find(d => d.type === type);
         if (def) {
@@ -75,18 +89,22 @@ export class DungeonsOfGlee {
         return 0;
     }
 
+    // get the local player's character class
     get localPlayerClass(): PlayerClass | undefined {
         return this.game?.playerInfo[this.localPlayerId ?? ""]?.type;
     }
 
+    // get the local player's player information if its been set
     get myPlayerInfo(): PlayerInfo | undefined {
         return this.game?.playerInfo[this.localPlayerId ?? ""];
     }
 
+    // check if it's this player's turn
     get myTurn(): boolean {
         return this.game?.whoseTurn === this.localPlayerId;
     }
 
+    // get the actor that represents this player
     get myActor(): Actor | undefined {
         if (this.myPlayerInfo && this.game) {
             return getActorById(this.game, this.myPlayerInfo.dungeonId, this.myPlayerInfo.actorId);
@@ -95,30 +113,40 @@ export class DungeonsOfGlee {
         return undefined;
     }
 
+    // notification that the mouse has been pressed
     mouseDown(x: number, y: number): void {
-        this.audioContext.resume();
-        // player select
+        console.log(x+","+y);
+        // if we haven't seleccted a class yet then using the y mouse position
+        // determine which class the player selected
         if (!this.localPlayerClass) {
             const selected = Math.floor((y - 140) / 70);
             if (this.classes[selected]) {
                 Rune.actions.setPlayerType({ type: this.classes[selected].type });
             }
         } else {
+            // otherwise we're in game. Work out which tile the player 
+            // clicked based on the camera offset.
             const tx = Math.floor((x - this.offsetx) / this.tileSize);
             const ty = Math.floor((y - this.offsety) / this.tileSize);
-            if (this.game && !this.game.currentActivity && this.myActor) {
-                const dungeon = getDungeonById(this.game, this.myActor.dungeonId);
-                if (!dungeon) {
-                    return;
-                }
-                const move = this.game.possibleMoves.find(m => m.x === tx && m.y === ty);
-                const actor = getActorAt(dungeon, tx, ty);
-                if (move && (!actor || move.type === "attack")) {
-                    Rune.actions.makeMove({ x: tx, y: ty });
+
+            if ((y < screenHeight() - 100) && (y > 64)) {
+                // if we're in game and theres a possible move at the location then
+                // run the Rune action to play a move.
+                if (this.game && !this.game.currentActivity && this.myActor) {
+                    const dungeon = getDungeonById(this.game, this.myActor.dungeonId);
+                    if (!dungeon) {
+                        return;
+                    }
+                    const move = this.game.possibleMoves.find(m => m.x === tx && m.y === ty);
+                    const actor = getActorAt(dungeon, tx, ty);
+                    if (move && (!actor || move.type === "attack")) {
+                        Rune.actions.makeMove({ x: tx, y: ty });
+                    }
                 }
             }
 
-            if (intersects(x, y, this.canvas.width - 100, this.canvas.height - 99, 90, 25)) {
+            // if we're clicking on the end turn button apply that Rune action.
+            if (intersects(x, y, screenWidth() - 100, screenHeight() - 99, 90, 25)) {
                 // pressed end turn
                 if (this.myTurn) {
                     Rune.actions.endTurn();
@@ -127,101 +155,8 @@ export class DungeonsOfGlee {
         }
     }
 
-    loadSound(url: string): Sound {
-        this.resourcesToLoad++;
-        const result: Sound = {};
-
-        const req = new XMLHttpRequest();
-        req.open("GET", url, true);
-        req.responseType = "arraybuffer";
-
-        req.onload = () => {
-            this.resourcesToLoad--;
-            const arrayBuffer = req.response;
-            if (arrayBuffer) {
-                result.data = arrayBuffer;
-                this.tryLoadSound(result);
-            }
-        };
-
-        req.send();
-        return result;
-    }
-
-    tryLoadSound(sound: Sound): Promise<void> {
-        return new Promise<void>((resolve) => {
-            if (sound.buffer) {
-                resolve();
-            } else {
-                if (sound.data && !sound.buffer) {
-                    this.audioContext.decodeAudioData(sound.data, (buffer: AudioBuffer) => {
-                        sound.buffer = buffer;
-                        resolve();
-                    });
-                }
-            }
-        });
-    }
-
-    playSound(sound: Sound): void {
-        // don't play sounds until we've joined the game proper
-        if (!this.localPlayerClass) {
-            return;
-        }
-
-        this.tryLoadSound(sound).then(() => {
-            if (sound.buffer) {
-                const source = this.audioContext.createBufferSource();
-                source.buffer = sound.buffer;
-                source.connect(this.audioContext.destination);
-                source.start(0);
-            }
-        })
-    }
-
-    loadImage(url: string): HTMLImageElement {
-        this.resourcesToLoad++;
-        const image = new Image();
-        image.onload = () => {
-            this.resourcesToLoad--;
-        };
-        image.src = url;
-
-        return image;
-    }
-
-    drawTile(x: number, y: number, tile: number, size: number = this.tileSize): void {
-        const tw = this.tiles.width / 64;
-        const tx = (tile % tw) * 64;
-        const ty = Math.floor(tile / tw) * 64;
-
-        this.ctx.drawImage(this.tiles, tx, ty, 64, 64, x, y, size, size);
-    }
-
-    drawText(x: number, y: number, str: string, size: number, col: string): void {
-        this.ctx.fillStyle = col;
-        this.ctx.font = "bold " + size + "px serif";
-        this.ctx.fillText(str, x, y);
-    }
-
-    drawRect(x: number, y: number, width: number, height: number, col: string): void {
-        this.ctx.fillStyle = col;
-        this.ctx.fillRect(x, y, width, 1);
-        this.ctx.fillRect(x, y + height - 1, width, 1);
-        this.ctx.fillRect(x, y, 1, height);
-        this.ctx.fillRect(x + width - 1, y, 1, height);
-    }
-
-    stringWidth(text: string, size: number) {
-        this.ctx.font = "bold " + size + "px serif";
-        return this.ctx.measureText(text).width;
-    }
-
-    centerText(text: string, size: number, y: number, col: string): void {
-        const cx = Math.floor(this.canvas.width / 2);
-        this.drawText(cx - (this.stringWidth(text, size) / 2), y, text, size, col);
-    }
-
+    // start the game. This is a simple boostrap to start Rune's client
+    // and beging the rendering loop
     start(): void {
         Rune.initClient({
             onChange: (game) => {
@@ -232,12 +167,16 @@ export class DungeonsOfGlee {
         requestAnimationFrame(() => { this.loop() });
     }
 
+    // Callback from Rune when the game state has changed
     gameUpdate(state: GameUpdate) {
+        // record our player ID
         this.localPlayerId = state.yourPlayerId;
 
+        // update our game state
         this.game = state.game;
         this.state = state;
 
+        // load any player avatars we don't already have
         for (const playerId in state.players) {
             if (!this.playerAvatars[playerId]) {
                 this.playerAvatars[playerId] = new Image();
@@ -245,134 +184,128 @@ export class DungeonsOfGlee {
             }
         }
 
-
+        // handle any events that were recorded this game frame
         for (const event of state.game.events) {
             this.processEvent(event);
         }
     }
 
+    // process game events presented by the game state
     processEvent(event: GameEvent) {
         if (event === "open") {
-            this.playSound(this.sfxDoor);
+            playSound(this.sfxDoor);
         }
         if (event === "step") {
+            // delayed so the sound plays when we reach our destination
             setTimeout(() => {
-                this.playSound(this.sfxStep);
+                playSound(this.sfxStep);
             }, STEP_TIME);
         }
     }
 
+    // the main client side game rendering loop. 
     loop(): void {
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
-        this.ctx.fillStyle = "rgb(20,20,20)";
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        const cx = Math.floor(this.canvas.width / 2);
+        // let the graphics do whatever it wants to do
+        updateGraphics();
 
+        // clear the screen
+        fillRect(0, 0, screenWidth(), screenHeight(), "rgb(20,20,20)");
+
+        const cx = Math.floor(screenWidth() / 2);
+
+        // if we have game state
         if (this.game) {
             this.anim++;
+            // if we don't currently have a player class then show
+            // the class selection screen
             if (!this.localPlayerClass) {
-                //
-                // player selection screen
-                ///
-                this.centerText("Select Your Hero", 24, 120, "white");
+                centerText("Select Your Hero", 24, 120, "white");
                 let p = 0;
                 for (const clazz of this.classes) {
-                    this.ctx.fillStyle = "rgb(40,40,40)";
-                    this.ctx.fillRect(cx - 80, 140 + (p * 70), 160, 64);
-                    this.drawTile(cx - 80, 140 + (p * 70), clazz.icon, 64);
-                    this.drawText(cx - 10, 180 + (p * 70), clazz.name, 24, "white");
+                    fillRect(cx - 80, 140 + (p * 70), 160, 64, "rgb(40,40,40)");
+                    drawTile(this.tiles, cx - 80, 140 + (p * 70), clazz.icon, 64, 64);
+                    drawText(cx - 10, 180 + (p * 70), clazz.name, 24, "white");
                     p++;
                 }
             } else {
-                this.ctx.save();
+                // otherwise render the dungeon area since we're in 
+                // game
+                pushState();
                 this.renderDungeon();
-                this.ctx.restore();
+                popState();
             }
 
-            // bar at the top
+            // render the bar of players at the top of the screen
             let p = 0;
             for (const playerId of this.game.playerOrder) {
-                this.ctx.fillStyle = "rgb(40,40,40)";
-                this.ctx.fillRect((p * 68), 0, 64, 64);
+                fillRect((p * 68), 0, 64, 64, "rgb(40,40,40)");
                 if (this.game.playerInfo[playerId]) {
-                    this.drawTile(p * 68, 0, this.iconForClass(this.game.playerInfo[playerId].type), 64);
+                    drawTile(this.tiles, p * 68, 0, this.iconForClass(this.game.playerInfo[playerId].type), 64, 64);
                 } else {
-                    this.drawText((p * 68) + 24, 43, "?", 32, "white");
+                    drawText((p * 68) + 24, 43, "?", 32, "white");
                 }
-                this.ctx.drawImage(this.playerAvatars[playerId], (p * 68) + 40, 38, 20, 20);
+                drawImage(this.playerAvatars[playerId], (p * 68) + 40, 38, 20, 20);
 
                 if (this.game.whoseTurn === playerId) {
-                    this.drawRect((p * 68), 0, 64, 64, "yellow");
+                    drawRect((p * 68), 0, 64, 64, "yellow");
                 }
                 p++;
             }
 
-            // status bar at the bottom
+            // render the status bar at the bottom
             if (this.localPlayerClass) {
-                this.ctx.fillStyle = "rgb(40,40,40)";
-                this.ctx.fillRect(0, this.canvas.height - 100, this.canvas.width, 100);
-                this.ctx.fillStyle = "rgb(60,60,60)";
-                this.ctx.fillRect(0, this.canvas.height - 70, this.canvas.width, 70);
+                fillRect(0, screenHeight() - 100, screenWidth(), 100, "rgb(40,40,40)");
+                fillRect(0, screenHeight() - 70, screenWidth(), 70, "rgb(60,60,60)");
                 if (this.game.whoseTurn === this.localPlayerId) {
-                    this.ctx.fillStyle = "#8ac34d";
-                    this.ctx.fillRect(0, this.canvas.height - 100, this.canvas.width, 27);
-                    this.ctx.fillStyle = "white";
-                    this.ctx.font = "bold 20px serif";
-                    this.ctx.fillText("YOUR TURN", 10, this.canvas.height - 80);
+                    fillRect(0, screenHeight() - 100, screenWidth(), 27, "#8ac34d");
+                    drawText(10, screenHeight() - 80, "YOUR TURN", 20, "white");
 
                     // end turn button
-                    this.ctx.fillStyle = "rgb(40,40,40)";
-                    this.ctx.fillRect(this.canvas.width - 100, this.canvas.height - 99, 90, 25);
-                    this.ctx.fillStyle = "white";
-                    this.ctx.font = "bold 14px serif";
-                    this.ctx.fillText("END TURN", this.canvas.width - 91, this.canvas.height - 81);
+                    fillRect(screenWidth() - 100, screenHeight() - 99, 90, 25, "rgb(40,40,40)");
+                    drawText(screenWidth() - 91, screenHeight() - 81, "END TURN", 14, "white");
                 } else {
-                    this.ctx.fillStyle = "#cc3a3a";
-                    this.ctx.fillRect(0, this.canvas.height - 100, this.canvas.width, 27);
+                    fillRect(0, screenHeight() - 100, screenWidth(), 27, "#cc3a3a");
 
                     const playerTurn = this.state?.players[this.game.whoseTurn];
                     if (playerTurn) {
-                        this.centerText(playerTurn.displayName.toUpperCase() + "'S TURN", 20, this.canvas.height - 80, "white");
+                        centerText(playerTurn.displayName.toUpperCase() + "'S TURN", 20, screenHeight() - 80, "white");
                     } else {
-                        this.centerText("MONSTER'S TURN", 20, this.canvas.height - 80, "white");
+                        centerText("MONSTER'S TURN", 20, screenHeight() - 80, "white");
                     }
                 }
 
                 if (this.myActor) {
-                    this.drawTile(cx - 150, this.canvas.height - 65, 70, 24);
+                    drawTile(this.tiles, cx - 150, screenHeight() - 65, 70, 24, 24);
                     for (let i = 0; i < this.myActor?.health; i++) {
-                        this.ctx.fillStyle = "#cc3a3a";
-                        this.ctx.fillRect(cx - 150 + 30 + (i * 20), this.canvas.height - 60, 15, 15);
-                        this.drawRect(cx - 150 + 30 + (i * 20), this.canvas.height - 60, 15, 15, "black");
+                        fillRect(cx - 150 + 30 + (i * 20), screenHeight() - 60, 15, 15, "#cc3a3a");
+                        drawRect(cx - 150 + 30 + (i * 20), screenHeight() - 60, 15, 15, "black");
                     }
 
-                    this.drawTile(cx - 155, this.canvas.height - 40, 75, 32);
+                    drawTile(this.tiles, cx - 155, screenHeight() - 40, 75, 32, 32);
                     for (let i = 0; i < this.myActor?.magic; i++) {
-                        this.ctx.fillStyle = "#2d7de9";
-                        this.ctx.fillRect(cx - 150 + 30 + (i * 20), this.canvas.height - 30, 15, 15);
-                        this.drawRect(cx - 150 + 30 + (i * 20), this.canvas.height - 30, 15, 15, "black");
+                        fillRect(cx - 150 + 30 + (i * 20), screenHeight() - 30, 15, 15, "#2d7de9");
+                        drawRect(cx - 150 + 30 + (i * 20), screenHeight() - 30, 15, 15, "black");
                     }
 
-                    this.drawTile(cx + 10, this.canvas.height - 65, 77, 24);
+                    drawTile(this.tiles, cx + 10, screenHeight() - 65, 77, 24, 24);
                     for (let i = 0; i < this.myActor?.moves; i++) {
-                        this.ctx.fillStyle = "#436c15";
-                        this.ctx.fillRect(cx + 10 + 30 + (i * 20), this.canvas.height - 60, 15, 15);
-                        this.drawRect(cx + 10 + 30 + (i * 20), this.canvas.height - 60, 15, 15, "black");
+                        fillRect(cx + 10 + 30 + (i * 20), screenHeight() - 60, 15, 15, "#436c15");
+                        drawRect(cx + 10 + 30 + (i * 20), screenHeight() - 60, 15, 15, "black");
                     }
-                    this.ctx.fillStyle = "white";
-                    this.ctx.font = "bold 24px serif";
-                    this.drawTile(cx + 20, this.canvas.height - 38, 45, 28);
-                    this.ctx.fillText("" + this.myActor.attack, cx + 50, this.canvas.height - 16);
-                    this.drawTile(cx + 90, this.canvas.height - 38, 69, 28);
-                    this.ctx.fillText("" + this.myActor.defense, cx + 120, this.canvas.height - 16);
+                    drawTile(this.tiles, cx + 20, screenHeight() - 38, 45, 28, 28);
+                    drawText(cx + 50, screenHeight() - 16, "" + this.myActor.attack, 24, "white");
+                    drawTile(this.tiles, cx + 90, screenHeight() - 38, 69, 28, 28);
+                    drawText(cx + 120, screenHeight() - 16, "" + this.myActor.defense, 24, "white");
                 }
             }
         }
 
+        // request another loop from the
         requestAnimationFrame(() => { this.loop() });
     }
 
+    // render the options/moves available to the player. These are shown 
+    // as semi-transparent markers over the top fo the dungeon
     renderOptions(): void {
         const offset = (20 / 64) * this.tileSize;
         if (this.game && this.myActor) {
@@ -380,27 +313,26 @@ export class DungeonsOfGlee {
             if (!dungeon) {
                 return;
             }
-            this.ctx.globalAlpha = 0.5;
+            setAlpha(0.5);
             for (const option of this.game.possibleMoves) {
                 if (option.type === "move") {
                     if (!getActorAt(dungeon, option.x, option.y)) {
-                        this.drawTile((option.x * this.tileSize) + offset, (option.y * this.tileSize) + offset, 5);
+                        drawTile(this.tiles, (option.x * this.tileSize) + offset, (option.y * this.tileSize) + offset, 5, this.tileSize, this.tileSize);
                     }
                 }
                 if (option.type === "open") {
-                    this.drawTile((option.x * this.tileSize) + offset, (option.y * this.tileSize) + offset, 6);
+                    drawTile(this.tiles, (option.x * this.tileSize) + offset, (option.y * this.tileSize) + offset, 6, this.tileSize, this.tileSize);
                 }
                 if (option.type === "attack") {
-                    this.drawTile((option.x * this.tileSize) + offset, (option.y * this.tileSize) + offset, 7);
+                    drawTile(this.tiles, (option.x * this.tileSize) + offset, (option.y * this.tileSize) + offset, 7, this.tileSize, this.tileSize);
                 }
-
-                // this.ctx.fillStyle = "white";
-                // this.ctx.fillText(option.depth+"", (option.x * 64), (option.y * 64)+20);
             }
-            this.ctx.globalAlpha = 1;
+            setAlpha(1);
         }
     }
 
+    // render the actual dungeon tiles. Theres not clipping here yet since dungeons aren't
+    // that big. Should really only render what would be in view
     renderDungeon(): void {
         if (this.game && this.myActor) {
             const dungeon = getDungeonById(this.game, this.myActor.dungeonId);
@@ -408,8 +340,10 @@ export class DungeonsOfGlee {
                 return;
             }
 
-            this.ctx.save();
+            pushState();
 
+
+            // work out the camera position based on the local actor
             let x = this.myActor.x;
             let y = this.myActor.y;
             const delta = Rune.gameTime() - this.myActor.lt;
@@ -419,10 +353,12 @@ export class DungeonsOfGlee {
                 y = (this.myActor.y * lerp) + (this.myActor.ly * (1 - lerp));
             }
 
-            this.offsetx = Math.floor((this.canvas.width / 2) - (x * this.tileSize) - 32);
-            this.offsety = Math.floor((this.canvas.height / 2) - (y * this.tileSize) - 32);
-            this.ctx.translate(this.offsetx, this.offsety);
+            this.offsetx = Math.floor((screenWidth() / 2) - (x * this.tileSize) - 32);
+            this.offsety = Math.floor((screenHeight() / 2) - (y * this.tileSize) - 32);
+            translate(this.offsetx, this.offsety);
 
+            // for each room render the tiles of the floor and walls and any doors that 
+            // are part of the room
             for (const room of dungeon.rooms) {
                 if (!room.discovered) {
                     continue;
@@ -433,34 +369,37 @@ export class DungeonsOfGlee {
                         const tx = room.x + x;
                         const ty = room.y + y;
 
-                        this.drawTile(tx * this.tileSize, ty * this.tileSize, 89 + (Math.abs((tx * ty) % 2)) * 8);
+                        drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, 89 + (Math.abs((tx * ty) % 2)) * 8, this.tileSize, this.tileSize);
                         const door = getDoorAt(dungeon, tx, ty);
 
                         if (door) {
                             if (door.open) {
-                                this.drawTile(tx * this.tileSize, ty * this.tileSize, 98);
+                                drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, 98, this.tileSize, this.tileSize);
                             } else {
-                                this.drawTile(tx * this.tileSize, ty * this.tileSize, 99);
+                                drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, 99, this.tileSize, this.tileSize);
                             }
                         } else {
+                            // theres some randomness here to make the walls sides and top vary from a list of potential images. it's
+                            // based on the x/y position so its deterministic 
                             if ((x === 0) || (x === room.width - 1)) {
-                                this.drawTile(tx * this.tileSize, ty * this.tileSize, WALL_TOPS[Math.abs(((tx * ty) % WALL_TOPS.length))]);
+                                drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, WALL_TOPS[Math.abs(((tx * ty) % WALL_TOPS.length))], this.tileSize, this.tileSize);
                             } else if (y === 0) {
-                                this.drawTile(tx * this.tileSize, ty * this.tileSize, WALL_FRONTS[Math.abs(((tx * ty) % WALL_FRONTS.length))]);
+                                drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, WALL_FRONTS[Math.abs(((tx * ty) % WALL_FRONTS.length))], this.tileSize, this.tileSize);
                             }
                             if (y === room.height - 1) {
                                 if (getRoomAt(dungeon, tx, ty + 1)) {
-                                    this.drawTile(tx * this.tileSize, ty * this.tileSize, WALL_FRONTS[Math.abs(((tx * ty) % WALL_FRONTS.length))]);
+                                    drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, WALL_FRONTS[Math.abs(((tx * ty) % WALL_FRONTS.length))], this.tileSize, this.tileSize);
                                 } else {
-                                    this.drawTile(tx * this.tileSize, ty * this.tileSize, WALL_FRONTS[Math.abs((tx * ty) % WALL_FRONTS.length)]);
+                                    drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, WALL_FRONTS[Math.abs((tx * ty) % WALL_FRONTS.length)], this.tileSize, this.tileSize);
                                 }
                             }
                         }
                     }
                 }
 
+                // if we're in the start room, draw the stairs
                 if (room.start) {
-                    this.drawTile((room.x + room.width - 2) * this.tileSize, (room.y + 1) * this.tileSize, 88);
+                    drawTile(this.tiles, (room.x + room.width - 2) * this.tileSize, (room.y + 1) * this.tileSize, 88, this.tileSize, this.tileSize);
                 }
             }
 
@@ -471,12 +410,17 @@ export class DungeonsOfGlee {
                 if (room?.discovered) {
                     let yoffset = -5;
                     let frameOffset = 0;
+
+                    // if the actor is who needs to move then animate them
                     if (actor.playerId === this.game.whoseTurn) {
                         if (Math.floor(this.anim / 15) % 2 === 0) {
                             frameOffset = 16;
                         }
                     }
 
+                    // each move from tile to tile takes "STEP_TIME". We'll linearly 
+                    // interpolate across that time frame to have the actor move smoothly 
+                    // from one tile to another
                     let x = actor.x;
                     let y = actor.y;
                     const delta = Rune.gameTime() - actor.lt;
@@ -484,17 +428,21 @@ export class DungeonsOfGlee {
                         const lerp = delta / STEP_TIME;
                         x = (actor.x * lerp) + (actor.lx * (1 - lerp));
                         y = (actor.y * lerp) + (actor.ly * (1 - lerp));
+                        // add a little bounce to the moves
                         yoffset = -Math.sin(lerp * Math.PI) * 13;
                         this.moving = true;
                     }
-                    this.drawTile(x * this.tileSize, (y * this.tileSize) + yoffset, actor.icon + frameOffset);
+                    drawTile(this.tiles, x * this.tileSize, (y * this.tileSize) + yoffset, actor.icon + frameOffset, this.tileSize, this.tileSize);
                 }
             }
 
+            // if this player is able to move and nothing else is happening then
+            // display the options for movement
             if (this.myTurn && !this.game.currentActivity && !this.moving) {
                 this.renderOptions();
             }
-            this.ctx.restore();
+
+            popState();
         }
     }
 }

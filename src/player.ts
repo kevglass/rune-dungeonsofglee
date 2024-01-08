@@ -2,6 +2,11 @@ import { ActorDef } from "./actor";
 
 export type PlayerClass = "dwarf" | "witch" | "elf" | "knight";
 
+// the initial stats for the player characters
+// dwarf is strongest but slow
+// witch is weak but has magic
+// elf is average but fast and ranged
+// knight is strong but not so slow
 export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
     "dwarf": {
         name: "Dwarf",
@@ -11,6 +16,7 @@ export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
         defense: 4,
         magic: 0,
         moves: 5,
+        good: true
     },
     "witch": {
         name: "Witch",
@@ -20,6 +26,7 @@ export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
         defense: 1,
         magic: 5,
         moves: 6,
+        good: true
     },
     "elf": {
         name: "elf",
@@ -29,6 +36,7 @@ export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
         defense: 2,
         magic: 0,
         moves: 7,
+        good: true
     },
     "knight": {
         name: "Knight",
@@ -38,10 +46,11 @@ export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
         defense: 3,
         magic: 0,
         moves: 6,
+        good: true
     }
 }
 
-
+// The information held for each player in the game
 export interface PlayerInfo {
   type: PlayerClass;
   actorId: number;

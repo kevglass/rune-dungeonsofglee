@@ -1,5 +1,7 @@
 import { GameState } from "./logic";
 
+// The definition of a actor type describing its attributes
+// at creation
 export interface ActorDef {
     name: string;
     health: number;
@@ -8,8 +10,11 @@ export interface ActorDef {
     magic: number;
     moves: number;
     icon: number;
+    good: boolean;
 }
 
+// An actor is a player or monsters in the world. They have stats
+// and the ability to take moves
 export interface Actor {
     id: number;
     x: number;
@@ -31,6 +36,8 @@ export interface Actor {
     dungeonId: number;
 }
 
+// create a new actor in a specific dungeon with some initial characteristics. This is used for both
+// players and monsters.
 export function createActor(game: GameState, def: ActorDef, dungeonId: number, x: number, y: number): Actor {
     return {
         id: game.nextId++,
@@ -41,7 +48,7 @@ export function createActor(game: GameState, def: ActorDef, dungeonId: number, x
         lt: 0,
         icon: def.icon,
         playerId: "",
-        good: false,
+        good: def.good,
         health: def.health,
         attack: def.attack,
         defense: def.defense,

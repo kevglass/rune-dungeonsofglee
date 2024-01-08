@@ -2,17 +2,24 @@ import { Actor } from "./actor";
 import { GameMove, GameState } from "./logic";
 import { createMonster } from "./monsters";
 
+// A wrapper for a single location in a dungeon
 export interface Point {
     x: number;
     y: number;
 }
 
+// A door places in the dungeon when its generated
 export interface Door {
     x: number;
     y: number;
     open: boolean;
 }
 
+// A room in a dungeon. It's essentially a rectangle
+// but also tracks whether its been discovered (whether it
+// should be rendered or monsters in it are active). Depth
+// indicates how far away from the start room it is and is
+// used for placing items in the dungeon
 export interface Room {
     discovered: boolean;
     start: boolean;
@@ -23,6 +30,11 @@ export interface Room {
     depth: number;
 }
 
+// The dungeon that the players and monsters live in. Dungeons
+// have rooms (unlike Ogres, who have layers). Rooms are connected
+// by doors that are global so they don't get tied to a single room. 
+// Dungeons also contain the collection of actors exploring them 
+// (players/monsters)
 export interface Dungeon {
     id: number;
     rooms: Room[];
@@ -42,6 +54,7 @@ function roomIntersection(a: Room, fullRoom: Room): boolean {
     );
 }
 
+// Type wrapped for compass directions
 enum Direction {
     NORTH = 0,
     SOUTH = 1,
@@ -136,31 +149,48 @@ export function generateDungeon(game: GameState): Dungeon {
     return dungeon;
 }
 
+// Retrieve a specific dungeon from the state based on its ID. Utility
+// wrapped incase this gets poor performance later. Note that a game
+// can have multiple dungeons running at the same time - this is 
+// for multiple levels
 export function getDungeonById(state: GameState, id: number) {
     return state.dungeons.find(d => d.id === id);
 }
+
+// Check whether a particular location blocks movement. The rules for this
+// are based on walls and other actors in the world. 
 export function blocked(dungeon: Dungeon, actor: Actor, x: number, y: number): boolean {
     const blockingActor = getActorAt(dungeon, x, y);
+    // if the actor that is moving is standing on the square then its blocked
     if (blockingActor === actor) {
         return true;
     }
+    // if an opponent actor is standing on a square then its blocked
     if (blockingActor && blockingActor.good !== actor.good) {
         return true;
     }
+    // if theres a door at a location and its opened then the tile 
+    // isn't blocked (this makes holes in walls for exploring)
     const door = getDoorAt(dungeon, x, y);
     if (door && door.open) {
         return false;
     }
+    // if theres no room at a location then we're in the void - this 
+    // blocks
     const room = getRoomAt(dungeon, x, y);
     if (!room) {
         return true;
     }
+    // the stairs in the start room block
     if (room.start && x === room.width + room.x - 2 && y === room.y + 1) {
         return true;
     }
+    // if we're on the edge of a room then theres a wall there (unless there
+    // was a door above)
     if (x === room.x || y === room.y || x === room.x + room.width - 1 || y === room.y + room.height - 1) {
         return true;
     }
+    // if we haven't discovered a room yet we can't move there
     if (!room.discovered) {
         return true;
     }
@@ -168,14 +198,21 @@ export function blocked(dungeon: Dungeon, actor: Actor, x: number, y: number): b
     return false;
 }
 
+// Using DJK to flood the map from the actor moving's location to determine all the possible
+// moves that can be made
 function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, x: number, y: number, depth: number, max: number): void {
+    // if we've searched further than the player can move - then give up
     if (depth > max) {
         return;
     }
     let existingMove = game.possibleMoves.find(m => m.x === x && m.y === y);
 
+    // if theres a door at the location and it's not been opened
+    // then add a possible move to open the door
     const door = getDoorAt(dungeon, x, y);
-    if (door && !door.open) {
+    if (door && !door.open && actor.good) {
+        // if there was already an open door move found at this location 
+        // use the one that was closer in moves to the actor 
         if (existingMove) {
             if (existingMove.depth > depth) {
                 game.possibleMoves.splice(game.possibleMoves.indexOf(existingMove), 1);
@@ -188,10 +225,14 @@ function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, x: numb
         return;
     }
 
+    // if the location is blocked then we can't flood any further
     if (blocked(dungeon, actor, x, y)) {
         return;
     }
 
+    // if theres an exsiting move thats been found to get to this location check
+    // whether it was a shorter move than the current one. If the existing one is better
+    // just keep it, otherwise throw it away and replace it with our current move
     if (existingMove) {
         if (existingMove.depth > depth) {
             game.possibleMoves.splice(game.possibleMoves.indexOf(existingMove), 1);
@@ -201,12 +242,15 @@ function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, x: numb
     }
 
     game.possibleMoves.push({ x, y, type: "move", depth });
+
+    // continue the flood
     floodFillMoves(game, dungeon, actor, x + 1, y, depth + 1, max);
     floodFillMoves(game, dungeon, actor, x - 1, y, depth + 1, max);
     floodFillMoves(game, dungeon, actor, x, y + 1, depth + 1, max);
     floodFillMoves(game, dungeon, actor, x, y - 1, depth + 1, max);
 }
 
+// calculate the possible move from an actors current location
 export function calcMoves(game: GameState, actor: Actor): void {
     const dungeon = getDungeonById(game, actor.dungeonId);
     // Djk to find possible movements
@@ -219,10 +263,13 @@ export function calcMoves(game: GameState, actor: Actor): void {
     }
 }
 
+// Get a possible move at the given location
 export function getMoveAt(game: GameState, x: number, y: number): GameMove | undefined {
     return game.possibleMoves.find(m => m.x === x && m.y === y);
 }
 
+// Find the next step in a path to get to a particular move. This traverses the array of
+// possible move by comparing their depth values to find a path back to the actor. 
 export function findNextStep(game: GameState, mover: Actor, x: number, y: number): GameMove | undefined {
     const targetMove = getMoveAt(game, x, y);
     if (targetMove) {
@@ -271,6 +318,7 @@ export function findNextStep(game: GameState, mover: Actor, x: number, y: number
     }
 }
 
+// Get a specific actor by its ID
 export function getActorById(game: GameState, dungeonId: number, id: number): Actor | undefined {
     const dungeon = getDungeonById(game, dungeonId);
     if (dungeon) {
@@ -280,14 +328,17 @@ export function getActorById(game: GameState, dungeonId: number, id: number): Ac
     return dungeon;
 }
 
+// Get a door at a given location if there is one
 export function getDoorAt(dungeon: Dungeon, x: number, y: number): Door | undefined {
     return dungeon.doors.find(d => d.x === x && d.y === y);
 }
 
+// Get an actor at a given location if there is one
 export function getActorAt(dungeon: Dungeon, x: number, y: number): Actor | undefined {
     return dungeon.actors.find(a => a.x === x && a.y === y);
 }
 
+// Get a room that contains a given location
 export function getRoomAt(dungeon: Dungeon, x: number, y: number): Room | undefined {
     const room = dungeon.rooms.find(room =>
         x >= room.x && y >= room.y && x < room.x + room.width && y < room.y + room.height
@@ -296,6 +347,9 @@ export function getRoomAt(dungeon: Dungeon, x: number, y: number): Room | undefi
     return room;
 }
 
+// Get all the rooms thats intersect with the given location. This is used
+// during dungeon generation to make sure no other rooms overlap the 
+// newly placed rooms
 export function getAllRoomsAt(dungeon: Dungeon, x: number, y: number): Room[] {
     return dungeon.rooms.filter(room =>
         x >= room.x && y >= room.y && x < room.x + room.width && y < room.y + room.height
