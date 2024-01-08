@@ -10,17 +10,17 @@ export type PlayerClass = "dwarf" | "witch" | "elf" | "knight";
 export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
     "dwarf": {
         name: "Dwarf",
-        icon: 0,
-        health: 5,
+        sprite: 0,
+        health: 1, //5,
         attack: 4,
-        defense: 4,
+        defense: 0, //4,
         magic: 0,
         moves: 5,
         good: true
     },
     "witch": {
         name: "Witch",
-        icon: 1,
+        sprite: 1,
         health: 3,
         attack: 1,
         defense: 1,
@@ -30,7 +30,7 @@ export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
     },
     "elf": {
         name: "elf",
-        icon: 2,
+        sprite: 2,
         health: 4,
         attack: 2,
         defense: 2,
@@ -40,7 +40,7 @@ export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
     },
     "knight": {
         name: "Knight",
-        icon: 3,
+        sprite: 3,
         health: 5,
         attack: 4,
         defense: 3,

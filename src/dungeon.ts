@@ -166,7 +166,7 @@ export function blocked(dungeon: Dungeon, actor: Actor, x: number, y: number): b
         return true;
     }
     // if an opponent actor is standing on a square then its blocked
-    if (blockingActor && blockingActor.good !== actor.good) {
+    if (blockingActor && (blockingActor.good !== actor.good || !actor.good)) {
         return true;
     }
     // if theres a door at a location and its opened then the tile 
@@ -200,29 +200,49 @@ export function blocked(dungeon: Dungeon, actor: Actor, x: number, y: number): b
 
 // Using DJK to flood the map from the actor moving's location to determine all the possible
 // moves that can be made
-function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, x: number, y: number, depth: number, max: number): void {
+function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, lastX: number, lastY: number, x: number, y: number, depth: number, max: number): void {
     // if we've searched further than the player can move - then give up
     if (depth > max) {
         return;
     }
     let existingMove = game.possibleMoves.find(m => m.x === x && m.y === y);
 
-    // if theres a door at the location and it's not been opened
-    // then add a possible move to open the door
-    const door = getDoorAt(dungeon, x, y);
-    if (door && !door.open && actor.good) {
-        // if there was already an open door move found at this location 
-        // use the one that was closer in moves to the actor 
-        if (existingMove) {
-            if (existingMove.depth > depth) {
-                game.possibleMoves.splice(game.possibleMoves.indexOf(existingMove), 1);
-                existingMove = undefined;
+    // we can't open doors or attack opponents if we can't stand in the square next to them
+    const actorInCurrentPosition = getActorAt(dungeon, lastX, lastY);
+    if (!actorInCurrentPosition || actor === actorInCurrentPosition) {
+        // if theres a door at the location and it's not been opened
+        // then add a possible move to open the door
+        const door = getDoorAt(dungeon, x, y);
+        if (door && !door.open && actor.good) {
+            // if there was already an open door move found at this location 
+            // use the one that was closer in moves to the actor 
+            if (existingMove) {
+                if (existingMove.depth > depth) {
+                    game.possibleMoves.splice(game.possibleMoves.indexOf(existingMove), 1);
+                    existingMove = undefined;
+                }
             }
+            if (!existingMove) {
+                game.possibleMoves.push({ x, y, type: "open", depth });
+            }
+            return;
         }
-        if (!existingMove) {
-            game.possibleMoves.push({ x, y, type: "open", depth });
+
+        // everyone can do melee combat
+        const target = getActorAt(dungeon, x, y);
+        if (actor.attacks > 0 && target && target.good !== actor.good) {
+            if (existingMove) {
+                if (existingMove.depth > depth) {
+                    game.possibleMoves.splice(game.possibleMoves.indexOf(existingMove), 1);
+                    existingMove = undefined;
+                }
+            }
+
+            if (!existingMove) {
+                game.possibleMoves.push({ x, y, type: "attack", depth });
+            }
+            return;
         }
-        return;
     }
 
     // if the location is blocked then we can't flood any further
@@ -244,10 +264,10 @@ function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, x: numb
     game.possibleMoves.push({ x, y, type: "move", depth });
 
     // continue the flood
-    floodFillMoves(game, dungeon, actor, x + 1, y, depth + 1, max);
-    floodFillMoves(game, dungeon, actor, x - 1, y, depth + 1, max);
-    floodFillMoves(game, dungeon, actor, x, y + 1, depth + 1, max);
-    floodFillMoves(game, dungeon, actor, x, y - 1, depth + 1, max);
+    floodFillMoves(game, dungeon, actor, x, y, x + 1, y, depth + 1, max);
+    floodFillMoves(game, dungeon, actor, x, y, x - 1, y, depth + 1, max);
+    floodFillMoves(game, dungeon, actor, x, y, x, y + 1, depth + 1, max);
+    floodFillMoves(game, dungeon, actor, x, y, x, y - 1, depth + 1, max);
 }
 
 // calculate the possible move from an actors current location
@@ -256,10 +276,10 @@ export function calcMoves(game: GameState, actor: Actor): void {
     // Djk to find possible movements
     game.possibleMoves = [];
     if (dungeon) {
-        floodFillMoves(game, dungeon, actor, actor.x + 1, actor.y, 1, actor.moves);
-        floodFillMoves(game, dungeon, actor, actor.x - 1, actor.y, 1, actor.moves);
-        floodFillMoves(game, dungeon, actor, actor.x, actor.y + 1, 1, actor.moves);
-        floodFillMoves(game, dungeon, actor, actor.x, actor.y - 1, 1, actor.moves);
+        floodFillMoves(game, dungeon, actor, actor.x, actor.y, actor.x + 1, actor.y, 1, actor.moves);
+        floodFillMoves(game, dungeon, actor, actor.x, actor.y, actor.x - 1, actor.y, 1, actor.moves);
+        floodFillMoves(game, dungeon, actor, actor.x, actor.y, actor.x, actor.y + 1, 1, actor.moves);
+        floodFillMoves(game, dungeon, actor, actor.x, actor.y, actor.x, actor.y - 1, 1, actor.moves);
     }
 }
 
@@ -320,6 +340,11 @@ export function findNextStep(game: GameState, mover: Actor, x: number, y: number
 
 // Get a specific actor by its ID
 export function getActorById(game: GameState, dungeonId: number, id: number): Actor | undefined {
+    const deadActor = game.deadHeroes.find(a => a.id === id);
+    if (deadActor) {
+        return deadActor;
+    }
+    
     const dungeon = getDungeonById(game, dungeonId);
     if (dungeon) {
         return dungeon.actors.find(a => a.id === id);

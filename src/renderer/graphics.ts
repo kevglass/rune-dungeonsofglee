@@ -119,3 +119,19 @@ export function setAlpha(alpha: number): void {
 export function translate(x: number, y: number): void {
     ctx.translate(x, y);
 }
+
+// scale the rendering context by a given amount
+export function scale(x: number, y: number): void {
+    ctx.scale(x, y);
+}
+
+export function rotate(ang: number): void {
+    ctx.rotate(ang);
+}
+
+export function fillCircle(x: number, y: number, radius: number, col: string): void {
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+}

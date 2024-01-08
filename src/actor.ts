@@ -9,7 +9,7 @@ export interface ActorDef {
     defense: number;
     magic: number;
     moves: number;
-    icon: number;
+    sprite: number;
     good: boolean;
 }
 
@@ -19,7 +19,7 @@ export interface Actor {
     id: number;
     x: number;
     y: number;
-    icon: number;
+    sprite: number;
     playerId: string;
     good: boolean;
     lx: number;
@@ -34,6 +34,7 @@ export interface Actor {
     defense: number;
     maxMagic: number;
     dungeonId: number;
+    facingRight: boolean;
 }
 
 // create a new actor in a specific dungeon with some initial characteristics. This is used for both
@@ -46,7 +47,7 @@ export function createActor(game: GameState, def: ActorDef, dungeonId: number, x
         lx: x,
         ly: y,
         lt: 0,
-        icon: def.icon,
+        sprite: def.sprite,
         playerId: "",
         good: def.good,
         health: def.health,
@@ -57,6 +58,7 @@ export function createActor(game: GameState, def: ActorDef, dungeonId: number, x
         attacks: 1,
         magic: def.magic,
         maxMagic: def.magic,
-        dungeonId: dungeonId
+        dungeonId: dungeonId,
+        facingRight: true
     };
 }

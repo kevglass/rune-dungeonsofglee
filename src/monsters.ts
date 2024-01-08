@@ -1,5 +1,5 @@
 import { Actor, ActorDef, createActor } from "./actor";
-import { getRoomAt } from "./dungeon";
+import { Point, getDungeonById, getRoomAt } from "./dungeon";
 import { GameState } from "./logic";
 
 // the list of monsters that can appear in the game
@@ -11,7 +11,7 @@ const MONSTER_DEFS: Record<string, ActorDef> = {
         defense: 1, 
         magic: 0,
         moves: 5,
-        icon: 8,
+        sprite: 8,
         good: false,
     }
 }
@@ -32,4 +32,42 @@ export function findActiveMonsters(game: GameState): Actor[] {
     });
 
     return result;
+}
+
+export function standingNextToHero(game: GameState, monster: Actor): boolean {
+    return distanceToHero(game, monster.dungeonId, monster) === 1;
+}
+
+export function distanceToHero(game: GameState, dungeonId: number, point: Point): number {
+    let best = 10000;
+    const dungeon = getDungeonById(game, dungeonId);
+    if (dungeon) {
+        dungeon.actors.filter(a => a.good).forEach(a => {
+            const distance = Math.abs(point.x - a.x) + Math.abs(point.y - a.y);
+            if (distance < best) {
+                best = distance;
+            }
+        });
+    }
+
+    return best;
+}
+
+export function getAdjacentHero(game: GameState, dungeonId: number, point: Point): Actor | undefined {
+    const dungeon = getDungeonById(game, dungeonId);
+    if (dungeon) {
+        const possible: Actor[] = [];
+        dungeon.actors.filter(a => a.good).forEach(a => {
+            const distance = Math.abs(point.x - a.x) + Math.abs(point.y - a.y);
+            if (distance === 1) {
+                possible.push(a);
+            }
+        });
+
+        if (possible.length > 0) {
+            return possible[Math.floor(Math.random() * possible.length)];
+        }
+    }
+
+    return undefined;
 }
