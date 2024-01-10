@@ -11,6 +11,7 @@ export interface ActorDef {
     moves: number;
     sprite: number;
     good: boolean;
+    ranged: boolean;
 }
 
 // An actor is a player or monsters in the world. They have stats
@@ -28,13 +29,15 @@ export interface Actor {
     moves: number;
     maxMoves: number;
     health: number;
-    attacks: number;
+    maxHealth: number;
+    actions: number;
     magic: number;
     attack: number;
     defense: number;
     maxMagic: number;
     dungeonId: number;
     facingRight: boolean;
+    ranged: boolean;
 }
 
 // create a new actor in a specific dungeon with some initial characteristics. This is used for both
@@ -51,14 +54,16 @@ export function createActor(game: GameState, def: ActorDef, dungeonId: number, x
         playerId: "",
         good: def.good,
         health: def.health,
+        maxHealth: def.health,
         attack: def.attack,
         defense: def.defense,
         moves: def.moves,
         maxMoves: def.moves,
-        attacks: 1,
+        actions: 1,
         magic: def.magic,
         maxMagic: def.magic,
         dungeonId: dungeonId,
-        facingRight: true
+        facingRight: true,
+        ranged: def.ranged
     };
 }

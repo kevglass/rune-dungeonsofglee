@@ -1,13 +1,18 @@
 import type { OnChangeAction, OnChangeEvent, PlayerId, Players, RuneClient } from "rune-games-sdk/multiplayer"
 import { PLAYER_CLASS_DEFS, PlayerClass, PlayerInfo } from "./player";
 import { Actor, createActor } from "./actor";
-import { calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getDungeonById, Point } from "./dungeon";
+import { blocked, calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getDungeonById, getRoomAt, Point, Room } from "./dungeon";
 import { distanceToHero, findActiveMonsters, getAdjacentHero, standingNextToHero } from "./monsters";
-import { errorLog } from "./log";
+import { debugLog, errorLog } from "./log";
 
 export const STEP_TIME = 1000 / 3;
 
-export type GameEventType = "damage" | "open" | "step" | "died" | "melee" | "ranged" | "magic" | "heal" | "turnChange";
+export type GameEventType = "damage" | "open" | "step" | "died" | "melee" | "shoot" | "magic" | "heal" | "turnChange";
+export type GameMoveType = "move" | "attack" | "open" | "heal" | "shoot" | "magic";
+
+export function isTargetedMove(type: GameMoveType): boolean {
+  return (type === "attack") || (type === "heal") || (type === "shoot") || (type === "magic");  
+} 
 
 export interface GameEvent {
   type: GameEventType;
@@ -15,6 +20,7 @@ export interface GameEvent {
   y: number;
   value: number;
   actorId: number;
+  delay: number;
 }
 
 export interface GameState {
@@ -41,7 +47,9 @@ export interface Activity {
 export interface GameMove {
   x: number;
   y: number;
-  type: "move" | "attack" | "open" | "heal"
+  sx: number;
+  sy: number;
+  type: GameMoveType;
   depth: number;
 }
 
@@ -104,7 +112,7 @@ export function nextTurn(game: GameState): void {
       }
 
       newActor.moves = newActor.maxMoves;
-      newActor.attacks = 1;
+      newActor.actions = 1;
       if (newActor.magic < newActor.maxMagic) {
         newActor.magic++;
       }
@@ -115,30 +123,42 @@ export function nextTurn(game: GameState): void {
     for (const dungeon of game.dungeons) {
       dungeon.actors.filter(a => !a.good).forEach(actor => {
         actor.moves = actor.maxMoves;
-        actor.attacks = 1;
+        actor.actions = 1;
       });
     }
   }
 
-  addGameEvent(game, 0, "turnChange");
+  addGameEvent(game, 0, "turnChange", 0);
 }
 
 // Semantic wrapper to help with readability 
-function addGameEvent(game: GameState, actorId: number, event: GameEventType, x: number = 0, y: number = 0, value: number = 0) {
+function addGameEvent(game: GameState, actorId: number, event: GameEventType, delay: number, x = 0, y = 0, value = 0) {
   game.events.push({
     type: event,
-    actorId, 
-    x, y, value
+    actorId,
+    x, y, value,
+    delay
   });
 }
 
-function rollCombat(attacker: Actor, target?: Actor): number {
+function rollCombat(attacker: Actor, target?: Actor, multiplier?: number): number {
   if (!target) {
     return 0;
   }
 
+  let attack = attacker.attack;
+  // if we're a ranged fighter and we're adjacent then half the attack
+  if (Math.abs(attacker.x - target.x) + Math.abs(attacker.y - target.y) === 1) {
+    attack = Math.ceil(attack / 2);
+  } else {
+    // in some cases attack is upgraded to account for magic or something 
+    if (multiplier) {
+      attack *= multiplier;
+    }
+  }
+
   let skulls = 0;
-  for (let i = 0; i < attacker.attack; i++) {
+  for (let i = 0; i < attack; i++) {
     if ((Math.random() * 6) < 3) {
       skulls++;
     }
@@ -180,7 +200,7 @@ function applyCurrentActivity(game: GameState): boolean {
           actor.x = nextStep.x;
           actor.y = nextStep.y;
           actor.moves--;
-          addGameEvent(game, actor.id, "step");
+          addGameEvent(game, actor.id, "step", 0);
           if (actor.x > actor.lx) {
             actor.facingRight = true;
           }
@@ -194,23 +214,104 @@ function applyCurrentActivity(game: GameState): boolean {
         if (nextStep && nextStep.type === "open") {
           dungeon.doors.filter(d => d.x === nextStep.x && d.y === nextStep.y).forEach(d => d.open = true);
           getAllRoomsAt(dungeon, nextStep.x, nextStep.y).forEach(r => r.discovered = true);
-          addGameEvent(game, actor.id, "open");
+          addGameEvent(game, actor.id, "open", 0);
         }
 
-        if (nextStep && nextStep.type === "attack") {
-          actor.attacks--;
+        if (nextStep && nextStep.type === "shoot") {
+          actor.actions--;
 
           const target = getActorAt(dungeon, nextStep.x, nextStep.y);
           if (target) {
             const damage = rollCombat(actor, target);
-            addGameEvent(game, actor.id, "melee");
-            addGameEvent(game, actor.id, "damage", nextStep.x, nextStep.y, damage);
+            addGameEvent(game, actor.id, "shoot", 0, nextStep.x, nextStep.y);
+            addGameEvent(game, actor.id, "damage", 300, nextStep.x, nextStep.y, damage);
 
             target.health -= damage;
             if (target.health <= 0) {
               target.health = 0;
               dungeon.actors.splice(dungeon.actors.indexOf(target), 1);
-              addGameEvent(game, -1, "died", nextStep.x, nextStep.y, target.sprite);
+              addGameEvent(game, -1, "died", 400, nextStep.x, nextStep.y, target.sprite);
+
+              if (target.good) {
+                game.deadHeroes.push(target);
+              }
+            }
+          }
+
+          // if we've already moved then engaging in combat
+          // uses up the rest
+          if (actor.moves < actor.maxMoves) {
+            actor.moves = 0;
+          }
+          calcMoves(game, actor);
+        }
+
+        if (nextStep && nextStep.type === "magic") {
+          actor.actions--;
+          actor.magic -= 3;
+
+          const target = getActorAt(dungeon, nextStep.x, nextStep.y);
+          if (target) {
+            // magic is powerful, add a multiplier
+            const damage = rollCombat(actor, target, 2);
+            addGameEvent(game, actor.id, "magic", 0, nextStep.x, nextStep.y);
+            addGameEvent(game, actor.id, "damage", 300, nextStep.x, nextStep.y, damage);
+
+            target.health -= damage;
+            if (target.health <= 0) {
+              target.health = 0;
+              dungeon.actors.splice(dungeon.actors.indexOf(target), 1);
+              addGameEvent(game, -1, "died", 400, nextStep.x, nextStep.y, target.sprite);
+
+              if (target.good) {
+                game.deadHeroes.push(target);
+              }
+            }
+          }
+
+          // if we've already moved then engaging in combat
+          // uses up the rest
+          if (actor.moves < actor.maxMoves) {
+            actor.moves = 0;
+          }
+          calcMoves(game, actor);
+        }
+
+        if (nextStep && nextStep.type === "heal") {
+          actor.actions--;
+          actor.magic -= 2;
+
+          const target = getActorAt(dungeon, nextStep.x, nextStep.y);
+          if (target) {
+            target.health += 2;
+            if (target.health > target.maxHealth) {
+              target.health = target.maxHealth;
+            }
+            addGameEvent(game, actor.id, "heal", 0, nextStep.x, nextStep.y);
+          }
+
+          // if we've already moved then engaging in combat
+          // uses up the rest
+          if (actor.moves < actor.maxMoves) {
+            actor.moves = 0;
+          }
+          calcMoves(game, actor);
+        }
+
+        if (nextStep && nextStep.type === "attack") {
+          actor.actions--;
+
+          const target = getActorAt(dungeon, nextStep.x, nextStep.y);
+          if (target) {
+            const damage = rollCombat(actor, target);
+            addGameEvent(game, actor.id, "melee", 0);
+            addGameEvent(game, actor.id, "damage", 100, nextStep.x, nextStep.y, damage);
+
+            target.health -= damage;
+            if (target.health <= 0) {
+              target.health = 0;
+              dungeon.actors.splice(dungeon.actors.indexOf(target), 1);
+              addGameEvent(game, -1, "died", 200, nextStep.x, nextStep.y, target.sprite);
 
               if (target.good) {
                 game.deadHeroes.push(target);
@@ -241,6 +342,7 @@ function applyCurrentActivity(game: GameState): boolean {
 
 // play the evil characters
 function takeEvilTurn(game: GameState): void {
+  // if theres no heroes left then don't do anything 
   const heroes: Actor[] = [];
   game.dungeons.forEach(d => heroes.push(...d.actors.filter(a => a.good)));
   if (heroes.length === 0) {
@@ -251,7 +353,7 @@ function takeEvilTurn(game: GameState): void {
     const nextToHero = standingNextToHero(game, a);
 
     return (a.moves > 0 && !nextToHero) ||
-      (a.attacks > 0 && nextToHero);
+      (a.actions > 0 && nextToHero);
   });
 
   allPossible.sort((a, b) => distanceToHero(game, a.dungeonId, a) - distanceToHero(game, b.dungeonId, b));
@@ -273,7 +375,7 @@ function takeEvilTurn(game: GameState): void {
           }
         }
 
-        monster.attacks--;
+        monster.actions--;
       } else {
         const bestMove = game.possibleMoves.sort((a, b) => distanceToHero(game, monster.dungeonId, a) - distanceToHero(game, monster.dungeonId, b))[0];
 
@@ -288,7 +390,7 @@ function takeEvilTurn(game: GameState): void {
     } else {
       // no moves possible, clear state
       monster.moves = 0;
-      monster.attacks = 0;
+      monster.actions = 0;
     }
   } else {
     nextTurn(game);
@@ -334,18 +436,44 @@ Rune.initLogic({
 
       // find a start poisiton for our player based on the start rooms
       const dungeon = context.game.dungeons[context.game.dungeons.length - 1];
-      const startRoom = dungeon.rooms.find(r => r.start);
-      if (startRoom) {
+      const mainStartRoom = dungeon.rooms.find(r => r.start);
+      if (mainStartRoom) {
         // consider all the spaces in the start room and if they are
         // free add them to a potential list of starts
         const possibleStarts: Point[] = [];
-        for (let x = 1; x < startRoom.width - 1; x++) {
-          for (let y = 1; y < startRoom.height - 1; y++) {
-            if (x === startRoom.width - 2 && y === 1) {
-              continue;
+        const startRooms: Room[] = [];
+
+        // find any heroes in the dungeon already
+        const heroes: Actor[] = [];
+        context.game.dungeons.forEach(d => heroes.push(...d.actors.filter(a => a.good)));
+
+        // if there aren't any heroes, just use the main start room
+        if (heroes.length === 0) {
+          startRooms.push(mainStartRoom);
+        } else {
+          // otherwise try and place the new hero somewhere near the 
+          // existing ones
+          for (const hero of heroes) {
+            const dungeon = getDungeonById(context.game, hero.dungeonId);
+            if (dungeon) {
+              const room = getRoomAt(dungeon, hero.x, hero.y);
+              if (room && !startRooms.includes(room)) {
+                startRooms.push(room);
+              }
             }
-            if (!getActorAt(dungeon, startRoom.x + x, startRoom.y + y)) {
-              possibleStarts.push({ x: x + startRoom.x, y: y + startRoom.y });
+          }
+        }
+
+        // scan through all the potential start rooms looking for an empty space
+        for (const room of startRooms) {
+          for (let x = 1; x < room.width - 1; x++) {
+            for (let y = 1; y < room.height - 1; y++) {
+              if (x === room.width - 2 && y === 1) {
+                continue;
+              }
+              if (!getActorAt(dungeon, room.x + x, room.y + y) && !blocked(dungeon, undefined, room.x + x, room.y + y)) {
+                possibleStarts.push({ x: x + room.x, y: y + room.y });
+              }
             }
           }
         }
@@ -444,7 +572,8 @@ Rune.initLogic({
     // framework. Gotcha here - this isn't called for players that are part
     // of the game when it starts. Initial players are presented in the 
     // allPlayerIds list in setup()
-    playerJoined: (playerId, context) => {
+    playerJoined: (playerId) => {
+      debugLog("Player Joined: " + playerId);
     },
     // called when a player leaves the game session - this is part of the
     // Rune framework

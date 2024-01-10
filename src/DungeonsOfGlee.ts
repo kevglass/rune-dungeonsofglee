@@ -12,7 +12,7 @@ import sfxMagicUrl from "./assets/fireball.mp3";
 import sfxHealUrl from "./assets/heal.mp3";
 import sfxClickUrl from "./assets/click.mp3";
 
-import { GameEvent, GameState, GameUpdate, STEP_TIME } from "./logic";
+import { GameEvent, GameState, GameUpdate, STEP_TIME, isTargetedMove } from "./logic";
 import { Actor } from "./actor";
 import { getActorAt, getActorById, getDoorAt, getDungeonById, getRoomAt } from "./dungeon";
 import { PlayerClass, PlayerInfo } from "./player";
@@ -31,6 +31,7 @@ import { Sound, loadSound, playSound } from "./renderer/sound";
 // values are to increase the probability of that type of tile.
 const WALL_TOPS = [92, 92, 92, 92, 92, 92, 93, 94, 95];
 const WALL_FRONTS = [100, 100, 100, 100, 100, 100, 101, 102, 103];
+const PROJECTILE_TIME = 250;
 
 // Definition of the type of character the player can choose
 interface PlayerClassDef {
@@ -46,6 +47,16 @@ interface Marker {
     created: number;
     source?: Actor;
     type: string;
+    delay: number;
+}
+
+interface Projectile {
+    sx: number;
+    sy: number;
+    dx: number;
+    dy: number;
+    sprite: number;
+    created: number;
 }
 
 // The actual game running ont he client
@@ -80,7 +91,8 @@ export class DungeonsOfGlee implements InputEventListener {
         { sprite: 3, name: "Knight", type: "knight" },
     ];
 
-    markers: Marker[] = [];
+    markers: Marker[] = []; 
+    projectiles: Projectile[] = [];
 
     // sound effect for door opening
     sfxDoor: Sound;
@@ -105,6 +117,7 @@ export class DungeonsOfGlee implements InputEventListener {
 
     logo: HTMLImageElement;
     cokeandcode: HTMLImageElement;
+    paused =false;
 
     constructor() {
         // register ourselves as the input listener so
@@ -175,7 +188,15 @@ export class DungeonsOfGlee implements InputEventListener {
     }
 
     // notification that the mouse has been pressed
-    mouseDown(x: number, y: number): void {
+    mouseDown(x: number, y: number, button: number): void {
+        if (button !== 0) {
+            this.paused = !this.paused;
+            if (!this.paused) {
+                requestAnimationFrame(() => { this.loop() });
+            }
+            return;
+        }
+
         playSound(this.sfxClick);
         // if we haven't seleccted a class yet then using the y mouse position
         // determine which class the player selected
@@ -204,7 +225,7 @@ export class DungeonsOfGlee implements InputEventListener {
                     }
                     const move = this.game.possibleMoves.find(m => m.x === tx && m.y === ty);
                     const actor = getActorAt(dungeon, tx, ty);
-                    if (move && (!actor || move.type === "attack")) {
+                    if (move && (!actor || isTargetedMove(move.type))) {
                         Rune.actions.makeMove({ x: tx, y: ty });
                     }
                 }
@@ -280,6 +301,54 @@ export class DungeonsOfGlee implements InputEventListener {
                 this.playSound(this.sfxTurn);
             }
         }
+        if (event.type === "shoot") {
+            if (this.game && this.myActor) {
+                this.playSound(this.sfxRanged);
+                const attacker = getActorById(this.game, this.myActor?.dungeonId, event.actorId);
+                if (attacker) {
+                    this.projectiles.push({
+                        sx: attacker.x,
+                        sy: attacker.y,
+                        dx: event.x,
+                        dy: event.y,
+                        created: Date.now(),
+                        sprite: 40
+                    });
+                }
+            }
+        }
+        if (event.type === "magic") {
+            if (this.game && this.myActor) {
+                this.playSound(this.sfxMagic);
+                const attacker = getActorById(this.game, this.myActor?.dungeonId, event.actorId);
+                if (attacker) {
+                    this.projectiles.push({
+                        sx: attacker.x,
+                        sy: attacker.y,
+                        dx: event.x,
+                        dy: event.y,
+                        created: Date.now(),
+                        sprite: 37
+                    });
+                }
+            }
+        }
+        if (event.type === "heal") {
+            if (this.game && this.myActor) {
+                this.playSound(this.sfxMagic);
+                const attacker = getActorById(this.game, this.myActor?.dungeonId, event.actorId);
+                if (attacker) {
+                    this.projectiles.push({
+                        sx: attacker.x,
+                        sy: attacker.y,
+                        dx: event.x,
+                        dy: event.y,
+                        created: Date.now(),
+                        sprite: 37
+                    });
+                }
+            }
+        }
         if (event.type === "damage") {
             if (this.game && this.myActor) {
                 const attacker = getActorById(this.game, this.myActor?.dungeonId, event.actorId);
@@ -293,7 +362,8 @@ export class DungeonsOfGlee implements InputEventListener {
                 this.markers.push({
                     x: event.x, y: event.y, value: event.value, created: Date.now(),
                     source: attacker,
-                    type: "damage"
+                    type: "damage",
+                    delay: event.delay
                 });
             }
         }
@@ -302,7 +372,8 @@ export class DungeonsOfGlee implements InputEventListener {
                 this.markers.push({
                     x: event.x, y: event.y, value: event.value, created: Date.now(),
                     source: getActorById(this.game, this.myActor?.dungeonId, event.actorId),
-                    type: "died"
+                    type: "died",
+                    delay: event.delay
                 });
             }
         }
@@ -319,7 +390,8 @@ export class DungeonsOfGlee implements InputEventListener {
         const cx = Math.floor(screenWidth() / 2);
 
         // filter any expired markers (they hang around for a second)
-        this.markers = this.markers.filter(m => Date.now() - m.created < 1000);
+        this.markers = this.markers.filter(m => Date.now() - (m.created + m.delay) < 1000);
+        this.projectiles = this.projectiles.filter(m => Date.now() - (m.created) < PROJECTILE_TIME);
 
         // if we have game state
         if (this.game) {
@@ -346,28 +418,30 @@ export class DungeonsOfGlee implements InputEventListener {
             }
 
             // render the bar of players at the top of the screen
-            let p = 0;
-            for (const playerId of this.game.playerOrder) {
-                fillRect((p * 68), 0, 64, 64, "rgb(40,40,40)");
-                if (this.game.playerInfo[playerId]) {
-                    const actor = getActorById(this.game, this.game.playerInfo[playerId].dungeonId, this.game.playerInfo[playerId].actorId);
-                    if (actor) {
-                        const sprite = actor.health > 0 ? actor.sprite : 10;
-                        drawTile(this.tiles, (p * 68) + 3, 0, sprite, 64, 64);
-                        for (let i = 0; i < actor.health; i++) {
-                            fillRect((p * 68) + 4, 52 - (i * 9), 8, 8, "#cc3a3a");
-                            drawRect((p * 68) + 4, 52 - (i * 9), 8, 8, "black");
+            if (this.myActor) {
+                let p = 0;
+                for (const playerId of this.game.playerOrder) {
+                    fillRect((p * 68), 0, 64, 64, "rgb(40,40,40)");
+                    if (this.game.playerInfo[playerId]) {
+                        const actor = getActorById(this.game, this.game.playerInfo[playerId].dungeonId, this.game.playerInfo[playerId].actorId);
+                        if (actor) {
+                            const sprite = actor.health > 0 ? actor.sprite : 10;
+                            drawTile(this.tiles, (p * 68) + 3, 0, sprite, 64, 64);
+                            for (let i = 0; i < actor.health; i++) {
+                                fillRect((p * 68) + 4, 52 - (i * 9), 8, 8, "#cc3a3a");
+                                drawRect((p * 68) + 4, 52 - (i * 9), 8, 8, "black");
+                            }
                         }
+                    } else {
+                        drawText((p * 68) + 24, 43, "?", 32, "white");
                     }
-                } else {
-                    drawText((p * 68) + 24, 43, "?", 32, "white");
-                }
-                drawImage(this.playerAvatars[playerId], (p * 68) + 40, 4, 20, 20);
+                    drawImage(this.playerAvatars[playerId], (p * 68) + 40, 4, 20, 20);
 
-                if (this.game.whoseTurn === playerId) {
-                    drawRect((p * 68), 0, 64, 64, "yellow");
+                    if (this.game.whoseTurn === playerId) {
+                        drawRect((p * 68), 0, 64, 64, "yellow");
+                    }
+                    p++;
                 }
-                p++;
             }
 
             // render the status bar at the bottom
@@ -384,8 +458,8 @@ export class DungeonsOfGlee implements InputEventListener {
                     drawText(10, screenHeight() - 80, "YOUR TURN", 20, "white");
 
                     // end turn button
-                    fillRect(screenWidth() - 122, screenHeight() - 109, 114, 47,  "rgb(40,40,40)");
-                    fillRect(screenWidth() - 122, screenHeight() - 109, 114, 44,  "#8ac34d");
+                    fillRect(screenWidth() - 122, screenHeight() - 109, 114, 47, "rgb(40,40,40)");
+                    fillRect(screenWidth() - 122, screenHeight() - 109, 114, 44, "#8ac34d");
                     fillRect(screenWidth() - 119, screenHeight() - 106, 108, 38, "rgb(40,40,40)");
                     drawText(screenWidth() - 111, screenHeight() - 81, "END TURN", 18, "white");
                 } else {
@@ -426,7 +500,9 @@ export class DungeonsOfGlee implements InputEventListener {
         }
 
         // request another loop from the
-        requestAnimationFrame(() => { this.loop() });
+        if (!this.paused) {
+            requestAnimationFrame(() => { this.loop() });
+        }
     }
 
     // render the options/moves available to the player. These are shown 
@@ -450,12 +526,24 @@ export class DungeonsOfGlee implements InputEventListener {
                 if (option.type === "attack") {
                     drawTile(this.tiles, (option.x * this.tileSize), (option.y * this.tileSize), 7, this.tileSize, this.tileSize);
                 }
+                if (option.type === "shoot") {
+                    setAlpha(0.7);
+                    drawTile(this.tiles, (option.x * this.tileSize), (option.y * this.tileSize), 40, this.tileSize, this.tileSize);
+                }
+                if (option.type === "magic") {
+                    setAlpha(1);
+                    drawTile(this.tiles, (option.x * this.tileSize) + (this.tileSize / 4), (option.y * this.tileSize) + (this.tileSize / 4), 36, this.tileSize / 2, this.tileSize / 2);
+                }
+                if (option.type === "heal") {
+                    setAlpha(0.7);
+                    drawTile(this.tiles, (option.x * this.tileSize) + (this.tileSize / 4), (option.y * this.tileSize) + (this.tileSize / 4), 70, this.tileSize / 2, this.tileSize / 2);
+                }
             }
             setAlpha(1);
         }
     }
 
-    // render the actual dungeon tiles. Theres not clipping here yet since dungeons aren't
+    // render the actual dungeon tiles. Theres not clipping here yet since dungeons aren't
     // that big. Should really only render what would be in view
     renderDungeon(): void {
         if (this.game && this.myActor) {
@@ -561,7 +649,7 @@ export class DungeonsOfGlee implements InputEventListener {
                     }
 
                     const marker = this.markers.find(m => m.source?.id === actor.id);
-                    if (marker) {
+                    if (marker && (Math.abs(marker.x - actor.x) + Math.abs(marker.y - actor.y) === 1)) {
                         if (Date.now() - marker.created < 150) {
                             const delta = ((Date.now() - marker.created) / 150) * Math.PI;
                             const offset = (Math.sin(delta) / 2);
@@ -581,9 +669,13 @@ export class DungeonsOfGlee implements InputEventListener {
                 }
             }
 
+            // death markers, spinning actor
             for (const marker of this.markers) {
                 if (marker.type === "died") {
-                    const delta = (Date.now() - marker.created) / 1000;
+                    let delta = (Date.now() - (marker.created + marker.delay)) / 1000;
+                    if (delta < 0) {
+                        delta = 0;
+                    }
                     pushState();
                     setAlpha(1 - delta);
                     translate(marker.x * this.tileSize, (marker.y * this.tileSize) - 5);
@@ -595,8 +687,13 @@ export class DungeonsOfGlee implements InputEventListener {
                 }
             }
 
+            // damage markers - floating number blobs
             for (const marker of this.markers) {
                 if (marker.type === "damage") {
+                    // don't draw before delay
+                    if (Date.now() < marker.created + marker.delay) {
+                        continue;
+                    }
                     const cx = (marker.x * this.tileSize) + (this.tileSize / 2)
                     const cy = (marker.y * this.tileSize) + (this.tileSize / 2) - 4;
                     let circleColor = "#cc3a3a";
@@ -605,10 +702,26 @@ export class DungeonsOfGlee implements InputEventListener {
                         circleColor = "#eee";
                         textColor = "black";
                     }
-                    const delta = (Date.now() - marker.created) / 1000;
+                    const delta = (Date.now() - (marker.created + marker.delay)) / 1000;
                     fillCircle(cx, cy - (delta * 20), 8, circleColor);
                     drawText(cx - 3, cy + 3 - (delta * 20), marker.value + "", 12, textColor);
                 }
+            }
+
+            // projectiles - rotated sprites that travel between two points
+            for (const projectile of this.projectiles) {
+                const delta = (Date.now() - projectile.created) / PROJECTILE_TIME;
+                const x = projectile.dx - projectile.sx;
+                const y = projectile.dy - projectile.sy;
+                // adjust for the arrow already being at 45 degrees
+                const ang = Math.atan2(y, x) - (Math.PI / 4) + (Math.PI / 2);
+                pushState();
+                translate((projectile.sx + (x * delta)) * this.tileSize, (projectile.sy + (y * delta)) * this.tileSize);
+                translate(this.tileSize / 2, this.tileSize / 2);
+                rotate(ang);
+                translate(-this.tileSize / 2, -this.tileSize / 2);
+                drawTile(this.tiles, 0, 0, projectile.sprite, this.tileSize, this.tileSize);
+                popState();
             }
 
             // if this player is able to move and nothing else is happening then

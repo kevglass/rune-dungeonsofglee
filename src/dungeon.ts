@@ -159,15 +159,17 @@ export function getDungeonById(state: GameState, id: number) {
 
 // Check whether a particular location blocks movement. The rules for this
 // are based on walls and other actors in the world. 
-export function blocked(dungeon: Dungeon, actor: Actor, x: number, y: number): boolean {
+export function blocked(dungeon: Dungeon, actor: Actor | undefined, x: number, y: number): boolean {
     const blockingActor = getActorAt(dungeon, x, y);
     // if the actor that is moving is standing on the square then its blocked
-    if (blockingActor === actor) {
+    if (blockingActor === actor && actor) {
         return true;
     }
     // if an opponent actor is standing on a square then its blocked
-    if (blockingActor && (blockingActor.good !== actor.good || !actor.good)) {
-        return true;
+    if (actor) {
+        if (blockingActor && (blockingActor.good !== actor.good || !actor.good)) {
+            return true;
+        }
     }
     // if theres a door at a location and its opened then the tile 
     // isn't blocked (this makes holes in walls for exploring)
@@ -223,14 +225,14 @@ function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, lastX: 
                 }
             }
             if (!existingMove) {
-                game.possibleMoves.push({ x, y, type: "open", depth });
+                game.possibleMoves.push({ x, y, type: "open", depth, sx: lastX, sy: lastY });
             }
             return;
         }
 
         // everyone can do melee combat
         const target = getActorAt(dungeon, x, y);
-        if (actor.attacks > 0 && target && target.good !== actor.good) {
+        if (actor.actions > 0 && target && target.good !== actor.good) {
             if (existingMove) {
                 if (existingMove.depth > depth) {
                     game.possibleMoves.splice(game.possibleMoves.indexOf(existingMove), 1);
@@ -239,7 +241,7 @@ function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, lastX: 
             }
 
             if (!existingMove) {
-                game.possibleMoves.push({ x, y, type: "attack", depth });
+                game.possibleMoves.push({ x, y, type: "attack", depth, sx: lastX, sy: lastY });
             }
             return;
         }
@@ -261,13 +263,61 @@ function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, lastX: 
         }
     }
 
-    game.possibleMoves.push({ x, y, type: "move", depth });
+    game.possibleMoves.push({ x, y, type: "move", depth, sx: lastX, sy: lastY });
 
     // continue the flood
     floodFillMoves(game, dungeon, actor, x, y, x + 1, y, depth + 1, max);
     floodFillMoves(game, dungeon, actor, x, y, x - 1, y, depth + 1, max);
     floodFillMoves(game, dungeon, actor, x, y, x, y + 1, depth + 1, max);
     floodFillMoves(game, dungeon, actor, x, y, x, y - 1, depth + 1, max);
+}
+
+// check if a particular location blocks line of sight (LOS)
+function blocksLOS(dungeon: Dungeon, source: Actor, target: Actor, x: number, y: number) {
+    const room = getRoomAt(dungeon, x, y);
+    if (!room) {
+        return true;
+    }
+    // does it hit a wall
+    if (room.x === x || room.y === y || room.x + room.width - 1 === x || room.y + room.height - 1 === y) {
+        const door = getDoorAt(dungeon, x, y);
+        if (!door || !door.open) {
+            return true;
+        }
+    }
+
+    const actor = getActorAt(dungeon, x, y);
+    if (actor && actor !== source && actor !== target) {
+        return true;
+    }
+
+    return false;
+}
+
+// true distance between actors - normally use manhattan but here
+// its important to consider as the crow flies
+function distanceForLOS(source: Actor, target: Actor): number {
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    return Math.sqrt((dx*dx) + (dy*dy));
+}
+
+// check if there is a line of sight (LOS) between source and target
+function hasLOS(dungeon: Dungeon, source: Actor, target: Actor): boolean {
+    let dx = target.x - source.x;
+    let dy = target.y - source.y;
+    const len = Math.sqrt((dx*dx) + (dy*dy));
+    dx /= len * 2;
+    dy /= len * 2;
+    for (let i=0;i<len*2;i++) {
+        const x = source.x + 0.5 + (i*dx);
+        const y = source.y + 0.5 + (i*dy);
+        if (blocksLOS(dungeon, source, target, Math.floor(x), Math.floor(y))) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 // calculate the possible move from an actors current location
@@ -280,6 +330,60 @@ export function calcMoves(game: GameState, actor: Actor): void {
         floodFillMoves(game, dungeon, actor, actor.x, actor.y, actor.x - 1, actor.y, 1, actor.moves);
         floodFillMoves(game, dungeon, actor, actor.x, actor.y, actor.x, actor.y + 1, 1, actor.moves);
         floodFillMoves(game, dungeon, actor, actor.x, actor.y, actor.x, actor.y - 1, 1, actor.moves);
+
+        if (actor.actions > 0) {
+            if (actor.ranged || actor.maxMagic > 0) {
+                const potentialTargets = dungeon.actors.filter(a => distanceForLOS(actor, a) < 10 && hasLOS(dungeon, actor, a));
+
+                // bad targets - can only do that at distance
+                const badGuys = potentialTargets.filter(a => a.good !== actor.good);
+                const goodGuys = potentialTargets.filter(a => a.good === actor.good);
+                if (actor.ranged) {
+                    for (const target of badGuys) {
+                        // if we're standing right next to them we can't use
+                        // our ranged attack
+                        if (Math.abs(target.x - actor.x) + Math.abs(target.y - actor.y) === 1) {
+                            continue;
+                        }
+
+                        const existingMove = game.possibleMoves.find(m => m.x === target.x && m.y === target.y);
+                        if (existingMove) {
+                            game.possibleMoves.splice(game.possibleMoves.indexOf(existingMove), 1);
+                        }
+                        game.possibleMoves.push({ x: target.x, y: target.y, type: "shoot", depth: 1, sx: actor.x, sy: actor.y });
+                    }
+                }
+                // 3 magic for fireball
+                if (actor.magic > 2) {
+                    for (const target of badGuys) {
+                        // if we're standing right next to them we can't use
+                        // our ranged attack
+                        if (Math.abs(target.x - actor.x) + Math.abs(target.y - actor.y) === 1) {
+                            continue;
+                        }
+
+                        const existingMove = game.possibleMoves.find(m => m.x === target.x && m.y === target.y);
+                        if (existingMove) {
+                            game.possibleMoves.splice(game.possibleMoves.indexOf(existingMove), 1);
+                        }
+                        game.possibleMoves.push({ x: target.x, y: target.y, type: "magic", depth: 1, sx: actor.x, sy: actor.y });
+                    }
+                }
+                // 2 magic for heal
+                if (actor.magic > 1) {
+                    for (const target of goodGuys) {
+                        if (target.health >= target.maxHealth) {
+                            continue;
+                        }
+                        const existingMove = game.possibleMoves.find(m => m.x === target.x && m.y === target.y);
+                        if (existingMove) {
+                            game.possibleMoves.splice(game.possibleMoves.indexOf(existingMove), 1);
+                        }
+                        game.possibleMoves.push({ x: target.x, y: target.y, type: "heal", depth: 1, sx: actor.x, sy: actor.y });
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -294,34 +398,15 @@ export function findNextStep(game: GameState, mover: Actor, x: number, y: number
     const targetMove = getMoveAt(game, x, y);
     if (targetMove) {
         let currentMove = targetMove;
+
+        // don't need a path for shooting
+        if (currentMove.type === "shoot" || currentMove.type === "heal" || currentMove.type === "magic") {
+            return currentMove;
+        }
         // keep going til we give up or we find the move thats next to our actor
         while (Math.abs(currentMove.x - mover.x) + Math.abs(currentMove.y - mover.y) !== 1) {
             // check down
-            let nextMove = getMoveAt(game, currentMove.x, currentMove.y + 1);
-            if (nextMove?.depth !== currentMove.depth - 1) {
-                nextMove = undefined;
-            }
-            // check up
-            if (!nextMove) {
-                nextMove = getMoveAt(game, currentMove.x, currentMove.y - 1);
-                if (nextMove?.depth !== currentMove.depth - 1) {
-                    nextMove = undefined;
-                }
-            }
-            // check right
-            if (!nextMove) {
-                nextMove = getMoveAt(game, currentMove.x + 1, currentMove.y);
-                if (nextMove?.depth !== currentMove.depth - 1) {
-                    nextMove = undefined;
-                }
-            }
-            // check left
-            if (!nextMove) {
-                nextMove = getMoveAt(game, currentMove.x - 1, currentMove.y);
-                if (nextMove?.depth !== currentMove.depth - 1) {
-                    nextMove = undefined;
-                }
-            }
+            const nextMove = getMoveAt(game, currentMove.sx, currentMove.sy);
             // if we don't have a move now then its an invalid path
             if (!nextMove) {
                 console.log("No move found");
@@ -344,7 +429,7 @@ export function getActorById(game: GameState, dungeonId: number, id: number): Ac
     if (deadActor) {
         return deadActor;
     }
-    
+
     const dungeon = getDungeonById(game, dungeonId);
     if (dungeon) {
         return dungeon.actors.find(a => a.id === id);

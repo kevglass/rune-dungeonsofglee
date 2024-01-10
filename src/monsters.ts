@@ -13,6 +13,7 @@ const MONSTER_DEFS: Record<string, ActorDef> = {
         moves: 5,
         sprite: 8,
         good: false,
+        ranged: false,
     }
 }
 

@@ -3,7 +3,7 @@ import { resumeAudioOnInput } from "./sound";
 // This is a very brute force simple renderer. It's just blitting images and text to 
 // a canvas. It's wrapped with a view to replacing it with something decent
 
-const canvas = document.getElementById("gamecanvas")! as HTMLCanvasElement;
+const canvas = document.getElementById("gamecanvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
 let eventListener: InputEventListener | undefined;
 
@@ -16,7 +16,7 @@ export interface TileSet {
 
 // a hook back for mouse/touch events
 export interface InputEventListener {
-    mouseDown(x: number, y: number): void;
+    mouseDown(x: number, y: number, button: number): void;
 }
 
 // register an event listener for mouse/touch events
@@ -24,10 +24,14 @@ export function registerInputEventListener(listener: InputEventListener): void {
     eventListener = listener;
 }
 
-// we're only currently interested on single mouse presses
+document.addEventListener('contextmenu', event => {
+    event.preventDefault();
+});
+
+// we're only c
 canvas.addEventListener("mouseup", (event) => {
     resumeAudioOnInput();
-    eventListener?.mouseDown(event.x, event.y);
+    eventListener?.mouseDown(event.x, event.y, event.button);
 });
 
 export function screenWidth(): number {

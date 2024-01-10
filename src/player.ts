@@ -11,22 +11,24 @@ export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
     "dwarf": {
         name: "Dwarf",
         sprite: 0,
-        health: 1, //5,
+        health: 5,
         attack: 4,
-        defense: 0, //4,
+        defense: 4,
         magic: 0,
         moves: 5,
-        good: true
+        good: true,
+        ranged: false,
     },
     "witch": {
         name: "Witch",
         sprite: 1,
         health: 3,
-        attack: 1,
+        attack: 2,
         defense: 1,
         magic: 5,
         moves: 6,
-        good: true
+        good: true,
+        ranged: false,
     },
     "elf": {
         name: "elf",
@@ -36,7 +38,8 @@ export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
         defense: 2,
         magic: 0,
         moves: 7,
-        good: true
+        good: true,
+        ranged: true,
     },
     "knight": {
         name: "Knight",
@@ -46,7 +49,8 @@ export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
         defense: 3,
         magic: 0,
         moves: 6,
-        good: true
+        good: true,
+        ranged: false,
     }
 }
 
