@@ -9,3 +9,16 @@ Hope this can be of help to someone at some point.
 
 ![image](https://github.com/kevglass/dungeonsofglee/assets/3787210/d5f93266-961b-4825-bd6c-e0289c1b5d95)
 
+## How to Play
+
+1. Choose a character
+2. Click/Tap to Move
+3. Expore, kill monsters, get loot.
+
+## Characters (aka Game Design)
+
+* Dwarf - Strong in both attack and defense, but slower to move.
+* Knight - Strong in attack, ok in defense, slightly faster to move.
+* Elf - Has ranged combat with bow, damage done in melee is reduced.
+* Witch - Glass cannon, low attack and defense, but able to cast fireball and heal other characters.
+
