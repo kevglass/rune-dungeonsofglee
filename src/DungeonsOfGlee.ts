@@ -33,6 +33,11 @@ const WALL_TOPS = [92, 92, 92, 92, 92, 92, 93, 94, 95];
 const WALL_FRONTS = [100, 100, 100, 100, 100, 100, 101, 102, 103];
 const PROJECTILE_TIME = 250;
 
+// Palette taken from sprites
+const GREEN = "#436c15"; // movement
+const RED = "#cc3a3a"; // health
+const BLUE = "#2d7de9"; // magic
+
 // Definition of the type of character the player can choose
 interface PlayerClassDef {
     sprite: number;
@@ -119,6 +124,10 @@ export class DungeonsOfGlee implements InputEventListener {
     cokeandcode: HTMLImageElement;
     paused =false;
 
+    // true if we're testing locally, lets me pause the game for screenshots
+    // etc
+    devMode: boolean = window.location.hostname === "localhost";
+    
     constructor() {
         // register ourselves as the input listener so
         // we get nofified of mouse presses
@@ -189,7 +198,7 @@ export class DungeonsOfGlee implements InputEventListener {
 
     // notification that the mouse has been pressed
     mouseDown(x: number, y: number, button: number): void {
-        if (button !== 0) {
+        if (button !== 0 && this.devMode) {
             this.paused = !this.paused;
             if (!this.paused) {
                 requestAnimationFrame(() => { this.loop() });
@@ -335,16 +344,22 @@ export class DungeonsOfGlee implements InputEventListener {
         }
         if (event.type === "heal") {
             if (this.game && this.myActor) {
-                this.playSound(this.sfxMagic);
-                const attacker = getActorById(this.game, this.myActor?.dungeonId, event.actorId);
-                if (attacker) {
+                this.playSound(this.sfxHeal);
+                const healer = getActorById(this.game, this.myActor?.dungeonId, event.actorId);
+                if (healer) {
                     this.projectiles.push({
-                        sx: attacker.x,
-                        sy: attacker.y,
+                        sx: healer.x,
+                        sy: healer.y,
                         dx: event.x,
                         dy: event.y,
                         created: Date.now(),
-                        sprite: 37
+                        sprite: 38
+                    });
+                    this.markers.push({
+                        x: event.x, y: event.y, value: event.value, created: Date.now(),
+                        source: healer,
+                        type: "heal",
+                        delay: 200
                     });
                 }
             }
@@ -428,7 +443,7 @@ export class DungeonsOfGlee implements InputEventListener {
                             const sprite = actor.health > 0 ? actor.sprite : 10;
                             drawTile(this.tiles, (p * 68) + 3, 0, sprite, 64, 64);
                             for (let i = 0; i < actor.health; i++) {
-                                fillRect((p * 68) + 4, 52 - (i * 9), 8, 8, "#cc3a3a");
+                                fillRect((p * 68) + 4, 52 - (i * 9), 8, 8, RED);
                                 drawRect((p * 68) + 4, 52 - (i * 9), 8, 8, "black");
                             }
                         }
@@ -463,7 +478,7 @@ export class DungeonsOfGlee implements InputEventListener {
                     fillRect(screenWidth() - 119, screenHeight() - 106, 108, 38, "rgb(40,40,40)");
                     drawText(screenWidth() - 111, screenHeight() - 81, "END TURN", 18, "white");
                 } else {
-                    fillRect(0, screenHeight() - 100, screenWidth(), 27, "#cc3a3a");
+                    fillRect(0, screenHeight() - 100, screenWidth(), 27, RED);
 
                     const playerTurn = this.state?.players[this.game.whoseTurn];
                     if (playerTurn) {
@@ -476,19 +491,19 @@ export class DungeonsOfGlee implements InputEventListener {
                 if (this.myActor) {
                     drawTile(this.tiles, cx - 150, screenHeight() - 65, 70, 24, 24);
                     for (let i = 0; i < this.myActor?.health; i++) {
-                        fillRect(cx - 150 + 30 + (i * 20), screenHeight() - 60, 15, 15, "#cc3a3a");
+                        fillRect(cx - 150 + 30 + (i * 20), screenHeight() - 60, 15, 15, RED);
                         drawRect(cx - 150 + 30 + (i * 20), screenHeight() - 60, 15, 15, "black");
                     }
 
                     drawTile(this.tiles, cx - 155, screenHeight() - 40, 75, 32, 32);
                     for (let i = 0; i < this.myActor?.magic; i++) {
-                        fillRect(cx - 150 + 30 + (i * 20), screenHeight() - 30, 15, 15, "#2d7de9");
+                        fillRect(cx - 150 + 30 + (i * 20), screenHeight() - 30, 15, 15, BLUE);
                         drawRect(cx - 150 + 30 + (i * 20), screenHeight() - 30, 15, 15, "black");
                     }
 
                     drawTile(this.tiles, cx + 10, screenHeight() - 65, 77, 24, 24);
                     for (let i = 0; i < this.myActor?.moves; i++) {
-                        fillRect(cx + 10 + 30 + (i * 20), screenHeight() - 60, 15, 15, "#436c15");
+                        fillRect(cx + 10 + 30 + (i * 20), screenHeight() - 60, 15, 15, GREEN);
                         drawRect(cx + 10 + 30 + (i * 20), screenHeight() - 60, 15, 15, "black");
                     }
                     drawTile(this.tiles, cx + 20, screenHeight() - 38, 45, 28, 28);
@@ -689,18 +704,22 @@ export class DungeonsOfGlee implements InputEventListener {
 
             // damage markers - floating number blobs
             for (const marker of this.markers) {
-                if (marker.type === "damage") {
+                if (marker.type === "damage" || marker.type === "heal") {
                     // don't draw before delay
                     if (Date.now() < marker.created + marker.delay) {
                         continue;
                     }
                     const cx = (marker.x * this.tileSize) + (this.tileSize / 2)
                     const cy = (marker.y * this.tileSize) + (this.tileSize / 2) - 4;
-                    let circleColor = "#cc3a3a";
+                    let circleColor = RED;
                     let textColor = "white";
                     if (marker.value === 0) {
                         circleColor = "#eee";
                         textColor = "black";
+                    }
+                    if (marker.type === "heal") {
+                        circleColor = GREEN;
+                        textColor = "white";
                     }
                     const delta = (Date.now() - (marker.created + marker.delay)) / 1000;
                     fillCircle(cx, cy - (delta * 20), 8, circleColor);

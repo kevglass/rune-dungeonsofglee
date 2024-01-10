@@ -287,7 +287,7 @@ function applyCurrentActivity(game: GameState): boolean {
             if (target.health > target.maxHealth) {
               target.health = target.maxHealth;
             }
-            addGameEvent(game, actor.id, "heal", 0, nextStep.x, nextStep.y);
+            addGameEvent(game, actor.id, "heal", 0, nextStep.x, nextStep.y, 2);
           }
 
           // if we've already moved then engaging in combat
