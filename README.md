@@ -17,8 +17,8 @@ Hope this can be of help to someone at some point.
 
 ## Characters (aka Game Design)
 
-Dwarf - Strong in both attack and defense, but slower to move.
-Knight - Strong in attack, ok in defense, slightly faster to move.
-Elf - Has ranged combat with bow, damage done in melee is reduced.
-Witch - Glass cannon, low attack and defense, but able to cast fireball and heal other characters.
+* Dwarf - Strong in both attack and defense, but slower to move.
+* Knight - Strong in attack, ok in defense, slightly faster to move.
+* Elf - Has ranged combat with bow, damage done in melee is reduced.
+* Witch - Glass cannon, low attack and defense, but able to cast fireball and heal other characters.
 
