@@ -15,12 +15,13 @@ import sfxClickUrl from "./assets/click.mp3";
 
 import { GameEvent, GameState, GameUpdate, STEP_TIME, isTargetedMove } from "./logic";
 import { Actor } from "./actor";
-import { getActorAt, getActorById, getDoorAt, getDungeonById, getRoomAt, getWallAt } from "./dungeon";
+import { getActorAt, getActorById, getChestAt, getDoorAt, getDungeonById, getRoomAt, getWallAt } from "./dungeon";
 import { PlayerClass, PlayerInfo } from "./player";
 import { InputEventListener, TileSet, centerText, drawImage, drawRect, drawText, drawTile, fillCircle, fillRect, loadTileSet, popState, pushState, registerInputEventListener, rotate, scale, screenHeight, screenWidth, setAlpha, stringWidth, translate, updateGraphics } from "./renderer/graphics";
 import { intersects } from "./renderer/util";
 import { Sound, loadSound, playSound } from "./renderer/sound";
 import { errorLog } from "./log";
+import { getItemIcon } from "./items";
 
 /**
  * Dungeons of Glee
@@ -35,6 +36,7 @@ const WALL_TOPS = [92, 92, 92, 92, 92, 92, 93, 94, 95];
 const WALL_FRONTS = [100, 100, 100, 100, 100, 100, 101, 102, 103];
 const PROJECTILE_TIME = 250;
 const GOLD_FLY_TIME = 500;
+const ITEM_FLY_TIME = 500;
 
 // Palette taken from sprites
 const GREEN = "#436c15"; // movement
@@ -145,6 +147,10 @@ export class DungeonsOfGlee implements InputEventListener {
     // used to do the effect of gold flying into your bag
     goldFlyEvent?: GameEvent;
     goldFlyStart = 0;
+
+    // used to do the effect of item flying into your bag
+    itemFlyEvent?: GameEvent;
+    itemFlyStart = 0;
 
     // true if we're looking at the loot screen
     lootOpen = false;
@@ -318,6 +324,9 @@ export class DungeonsOfGlee implements InputEventListener {
         if (event.type === "open") {
             this.playSound(this.sfxDoor);
         }
+        if (event.type === "chestOpen") {
+            this.playSound(this.sfxDoor);
+        }
         if (event.type === "step") {
             // delayed so the sound plays when we reach our destination
             setTimeout(() => {
@@ -432,6 +441,11 @@ export class DungeonsOfGlee implements InputEventListener {
         if (event.type === "goldLoot") {
             this.goldFlyEvent = event;
             this.goldFlyStart = Date.now() + event.delay;
+        }
+        // we've got an item do the fly through
+        if (event.type === "itemLoot") {
+            this.itemFlyEvent = event;
+            this.itemFlyStart = Date.now() + event.delay;
         }
     }
 
@@ -592,32 +606,57 @@ export class DungeonsOfGlee implements InputEventListener {
                 } else {
                     errorLog("No local actor found");
                 }
+
+                // if we've just looted gold draw it flying to 
+                // the gold store
+                if (this.goldFlyEvent) {
+                    // find the screen coordinates of the death that happened
+                    const xp = (this.goldFlyEvent.x * this.tileSize) + this.offsetx;
+                    const yp = (this.goldFlyEvent.y * this.tileSize) + this.offsety;
+                    const bagx = screenWidth() - 50;
+                    const bagy = 60;
+                    const dx = bagx - xp;
+                    const dy = bagy - yp;
+                    const delta = (Date.now() - this.goldFlyStart) / GOLD_FLY_TIME;
+                    if (delta < 1) {
+                        if (delta > 0) {
+                            // gold is flying
+                            const x = xp + (dx * delta);
+                            const y = yp + (dy * delta);
+                            drawTile(this.tiles, x, y, 39, this.tileSize, this.tileSize);
+                        }
+                    } else {
+                        // we're done
+                        this.goldFlyEvent = undefined;
+                    }
+                }
+
+                // if we've just looted gold draw it flying to 
+                // the gold store
+                if (this.itemFlyEvent && this.itemFlyEvent.item) {
+                    // find the screen coordinates of the death that happened
+                    const xp = (this.itemFlyEvent.x * this.tileSize) + this.offsetx;
+                    const yp = (this.itemFlyEvent.y * this.tileSize) + this.offsety;
+                    const boxx = screenWidth() - 50;
+                    const boxy = 30;
+                    const dx = boxx - xp;
+                    const dy = boxy - yp;
+                    const delta = (Date.now() - this.itemFlyStart) / ITEM_FLY_TIME;
+                    if (delta < 1) {
+                        if (delta > 0) {
+                            // gold is flying
+                            const x = xp + (dx * delta);
+                            const y = yp + (dy * delta);
+                            drawTile(this.tiles, x, y, getItemIcon(this.itemFlyEvent.item), this.tileSize, this.tileSize);
+                        }
+                    } else {
+                        // we're done
+                        this.goldFlyEvent = undefined;
+                    }
+                }
             }
         }
 
-        // if we've just looted gold draw it flying to 
-        // the gold store
-        if (this.goldFlyEvent) {
-            // find the screen coordinates of the death that happened
-            const xp = (this.goldFlyEvent.x * this.tileSize) + this.offsetx;
-            const yp = (this.goldFlyEvent.y * this.tileSize) + this.offsety;
-            const bagx = screenWidth() - 50;
-            const bagy = 60;
-            const dx = bagx - xp;
-            const dy = bagy - yp;
-            const delta = (Date.now() -  this.goldFlyStart) / GOLD_FLY_TIME;
-            if (delta < 1) {
-                if (delta > 0) {
-                    // gold is flying
-                    const x = xp + (dx * delta);
-                    const y = yp + (dy * delta);
-                    drawTile(this.tiles, x, y, 39, this.tileSize, this.tileSize);
-                }
-            } else {
-                // we're done
-                this.goldFlyEvent = undefined;
-            }
-        }
 
         // request another loop from the
         if (!this.paused) {
@@ -641,6 +680,9 @@ export class DungeonsOfGlee implements InputEventListener {
                     }
                 }
                 if (option.type === "open") {
+                    drawTile(this.tiles, (option.x * this.tileSize), (option.y * this.tileSize), 6, this.tileSize, this.tileSize);
+                }
+                if (option.type === "chest") {
                     drawTile(this.tiles, (option.x * this.tileSize), (option.y * this.tileSize), 6, this.tileSize, this.tileSize);
                 }
                 if (option.type === "attack") {
@@ -725,6 +767,17 @@ export class DungeonsOfGlee implements InputEventListener {
                                 } else {
                                     drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, WALL_FRONTS[Math.abs(((tx * ty) % WALL_FRONTS.length))], this.tileSize, this.tileSize);
                                 }
+                            }
+                        }
+
+                        const chest = getChestAt(dungeon, tx, ty);
+                        if (chest) {
+                            const offset = 5;
+                            const size = (this.tileSize) - (offset * 2);
+                            if (chest.open) {
+                                drawTile(this.tiles, (tx * this.tileSize) + offset, (ty * this.tileSize) + offset, 66, size, size);
+                            } else {
+                                drawTile(this.tiles, (tx * this.tileSize) + offset, (ty * this.tileSize) + offset, 74, size, size);
                             }
                         }
                     }

@@ -1,15 +1,15 @@
 import type { OnChangeAction, OnChangeEvent, PlayerId, Players, RuneClient } from "rune-games-sdk/multiplayer"
 import { PLAYER_CLASS_DEFS, PlayerClass, PlayerInfo } from "./player";
 import { Actor, copyActor, createActor } from "./actor";
-import { blocked, calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getDungeonById, getRoomAt, Point, Room } from "./dungeon";
-import { distanceToHero, findActiveMonsters, getAdjacentHero, standingNextToHero } from "./monsters";
+import { blocked, calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getChestAt, getDungeonById, getRoomAt, Point, Room } from "./dungeon";
+import { createMonsterItemLoot, distanceToHero, findActiveMonsters, getAdjacentHero, standingNextToHero } from "./monsters";
 import { debugLog, errorLog } from "./log";
-import { Item } from "./items";
+import { Item, ItemType, addItemToInvetory as addItemToInventory, createItem } from "./items";
 
 export const STEP_TIME = 1000 / 3;
 
-export type GameEventType = "damage" | "open" | "step" | "died" | "melee" | "shoot" | "magic" | "heal" | "turnChange" | "stairs" | "goldLoot";
-export type GameMoveType = "move" | "attack" | "open" | "heal" | "shoot" | "magic";
+export type GameEventType = "damage" | "open" | "step" | "died" | "melee" | "shoot" | "magic" | "heal" | "turnChange" | "stairs" | "goldLoot" | "itemLoot" | "chestOpen";
+export type GameMoveType = "move" | "attack" | "open" | "heal" | "shoot" | "magic" | "chest";
 
 export function isTargetedMove(type: GameMoveType): boolean {
   return (type === "attack") || (type === "heal") || (type === "shoot") || (type === "magic");
@@ -24,6 +24,7 @@ export interface GameEvent {
   value: number;
   actorId: number;
   delay: number;
+  item?: ItemType;
 }
 
 export interface GameState {
@@ -142,12 +143,13 @@ export function nextTurn(game: GameState): void {
 }
 
 // Semantic wrapper to help with readability 
-function addGameEvent(game: GameState, actorId: number, event: GameEventType, delay: number, x = 0, y = 0, value = 0) {
+function addGameEvent(game: GameState, actorId: number, event: GameEventType, delay: number, x = 0, y = 0, value = 0, item?: ItemType) {
   game.events.push({
     type: event,
     actorId,
     x, y, value,
-    delay
+    delay,
+    item
   });
 }
 
@@ -197,7 +199,11 @@ function kill(game: GameState, dungeon: Dungeon, target: Actor, extraDelay = 0):
     game.deadHeroes.push(target);
   } else {
     // do the loot!
-    if (target.goldOnKill) {
+    const item = createMonsterItemLoot(game, target);
+    if (item) {
+      addItemToInventory(game, item);
+      addGameEvent(game, -1, "itemLoot", 400 + extraDelay, target.x, target.y, 0, item.type);
+    } else if (target.goldOnKill) {
       const lootGold = Math.floor(Math.random() * (target.goldOnKill.max - target.goldOnKill.min)) + target.goldOnKill.min;
     
       game.gold += lootGold;
@@ -245,6 +251,27 @@ function applyCurrentActivity(game: GameState): boolean {
           dungeon.doors.filter(d => d.x === nextStep.x && d.y === nextStep.y).forEach(d => d.open = true);
           getAllRoomsAt(dungeon, nextStep.x, nextStep.y).forEach(r => r.discovered = true);
           addGameEvent(game, actor.id, "open", 0);
+        }
+
+        // if we're opening a chest it takes up our action point
+        if (nextStep && nextStep.type === "chest") {
+          actor.actions--;
+
+          const chest = getChestAt(dungeon, nextStep.x, nextStep.y);
+          if (chest) {
+            chest.open = true;
+            const item = createItem(game, chest.item);
+            addItemToInventory(game, item);
+            addGameEvent(game, actor.id, "chestOpen", 0);
+            addGameEvent(game, actor.id, "itemLoot", 0, nextStep.x, nextStep.y, 0, item.type);
+          }
+
+          // if we've already moved then engaging in combat
+          // uses up the rest
+          if (actor.moves < actor.maxMoves) {
+            actor.moves = 0;
+          }
+          calcMoves(game, actor);
         }
 
         if (nextStep && nextStep.type === "shoot") {

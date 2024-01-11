@@ -52,6 +52,7 @@ export interface Actor {
     facingRight: boolean;
     ranged: boolean;
     goldOnKill?: MinMax;
+    loot?: ItemChance[];
 }
 
 // create a new actor in a specific dungeon with some initial characteristics. This is used for both
@@ -79,7 +80,8 @@ export function createActor(game: GameState, def: ActorDef, dungeonId: number, x
         dungeonId: dungeonId,
         facingRight: true,
         ranged: def.ranged,
-        goldOnKill: def.goldOnKill
+        goldOnKill: def.goldOnKill,
+        loot: def.loot
     };
 }
 

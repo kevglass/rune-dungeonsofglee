@@ -1,5 +1,6 @@
 import { Actor, ActorDef, createActor } from "./actor";
 import { Point, getDungeonById, getRoomAt } from "./dungeon";
+import { Item, createItem } from "./items";
 import { GameState } from "./logic";
 
 // the list of monsters that can appear in the game
@@ -8,7 +9,7 @@ const MONSTER_DEFS: Record<string, ActorDef> = {
         name: "Goblin",
         health: 1,
         attack: 1,
-        defense: 1, 
+        defense: 1,
         magic: 0,
         moves: 5,
         sprite: 8,
@@ -22,6 +23,17 @@ const MONSTER_DEFS: Record<string, ActorDef> = {
             { item: "heal-potion", chance: 1 }
         ]
     }
+}
+
+export function createMonsterItemLoot(game: GameState, actor: Actor): Item | undefined {
+    if (actor.loot) {
+        for (const loot of actor.loot) {
+            if (Math.random() < loot.chance) {
+                return createItem(game, loot.item);
+            }
+        }
+    }
+    return undefined;
 }
 
 // utility method to just wrap up monster creation

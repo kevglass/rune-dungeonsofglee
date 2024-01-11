@@ -1,7 +1,10 @@
 import { Actor } from "./actor";
+import { ItemType, rollChestItem } from "./items";
 import { errorLog } from "./log";
 import { GameMove, GameState } from "./logic";
 import { createMonster } from "./monsters";
+
+export const CHANCE_OF_CHEST = 0.1;
 
 // A wrapper for a single location in a dungeon
 export interface Point {
@@ -32,6 +35,15 @@ export interface Room {
     stairsDown?: boolean;
 }
 
+// a chest in a room - always in the centre and containing
+// a single item. Acting upon it gives the players the item
+export interface Chest {
+    item: ItemType;
+    open: boolean;
+    x: number;
+    y: number;
+}
+
 // The dungeon that the players and monsters live in. Dungeons
 // have rooms (unlike Ogres, who have layers). Rooms are connected
 // by doors that are global so they don't get tied to a single room. 
@@ -43,6 +55,7 @@ export interface Dungeon {
     rooms: Room[];
     doors: Door[];
     actors: Actor[];
+    chests: Chest[];
 }
 
 // special intersection routine that allows walls to overlay but not
@@ -75,11 +88,13 @@ export function generateDungeon(game: GameState, level: number): Dungeon {
         level: level,
         rooms: [],
         doors: [],
-        actors: []
+        actors: [],
+        chests: []
     }
 
-    // the target number of rooms to create
-    const targetCount = 2 + Math.floor(level / 3);
+    // the target number of rooms to create - levels get bigger
+    // as you go down
+    const targetCount = 10 + Math.floor(level / 3);
     // guard condition for the rare case
     // we can't place 20 rooms
     let maxCycles = 1000;
@@ -168,6 +183,38 @@ export function generateDungeon(game: GameState, level: number): Dungeon {
 
     lastRoom.stairsDown = true;
 
+    for (const room of dungeon.rooms) {
+        // no chests in the starting rooms
+        if (room.start) {
+            continue;
+        }
+        // or the ending rooms
+        if (room.stairsDown) {
+            continue;
+        }
+        // or in rooms where they'd block movement
+        if (room.width < 5 || room.height < 5) {
+            continue;
+        }
+
+        if (Math.random() < CHANCE_OF_CHEST) {
+            const cx = room.x + Math.floor(room.width / 2);
+            const cy = room.y + Math.floor(room.height / 2);
+
+            // we set the room to discovered here
+            // so we can use the blocked check safely.
+            room.discovered = true;
+            if (!blocked(dungeon, undefined, cx, cy)) {
+                dungeon.chests.push({
+                    x: cx,
+                    y: cy,
+                    item: rollChestItem(),
+                    open: false
+                })
+            }
+            room.discovered = false;
+        }
+    }
     return dungeon;
 }
 
@@ -203,6 +250,12 @@ export function blocked(dungeon: Dungeon, actor: Actor | undefined, x: number, y
     if (door && door.open) {
         return false;
     }
+    // chests always block movement
+    const chest = getChestAt(dungeon, x, y);
+    if (chest) {
+        return true;
+    }
+    
     // if theres no room at a location then we're in the void - this 
     // blocks
     const room = getRoomAt(dungeon, x, y);
@@ -252,6 +305,23 @@ function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, lastX: 
             return;
         }
 
+        // consider opening chests
+        const chest = getChestAt(dungeon, x, y);
+        if (chest && !chest.open && actor.good && actor.actions > 0) {
+            // if there was already an open chest move found at this location 
+            // use the one that was closer in moves to the actor 
+            if (existingMove) {
+                if (existingMove.depth > depth) {
+                    game.possibleMoves.splice(game.possibleMoves.indexOf(existingMove), 1);
+                    existingMove = undefined;
+                }
+            }
+            if (!existingMove) {
+                game.possibleMoves.push({ x, y, type: "chest", depth, sx: lastX, sy: lastY });
+            }
+            return;
+        }
+
         // everyone can do melee combat
         const target = getActorAt(dungeon, x, y);
         if (actor.actions > 0 && target && target.good !== actor.good) {
@@ -268,7 +338,7 @@ function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, lastX: 
             return;
         }
     }
-    
+
     // if we've searched further than the player can move - then give up
     if (depth > max) {
         return;
@@ -469,6 +539,12 @@ export function getActorById(game: GameState, dungeonId: number, id: number): Ac
 export function getDoorAt(dungeon: Dungeon, x: number, y: number): Door | undefined {
     return dungeon.doors.find(d => d.x === x && d.y === y);
 }
+
+// Get a chest at  a given location if there is one
+export function getChestAt(dungeon: Dungeon, x: number, y: number): Chest | undefined {
+    return dungeon.chests.find(d => d.x === x && d.y === y);
+}
+
 
 // Get an actor at a given location if there is one
 export function getActorAt(dungeon: Dungeon, x: number, y: number): Actor | undefined {
