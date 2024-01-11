@@ -3,6 +3,7 @@ import cokeandcodeUrl from "./assets/cokeandcode.png";
 import logoUrl from "./assets/logo.png";
 import sfxDoorUrl from "./assets/opendoor.mp3";
 import sfxStepUrl from "./assets/mapstep.mp3";
+import sfxStepsUrl from "./assets/steps.mp3";
 import sfxSwishUrl from "./assets/swish.mp3";
 import sfxPainUrl from "./assets/pain1.mp3";
 import sfxMonsterUrl from "./assets/monster1.mp3";
@@ -14,11 +15,12 @@ import sfxClickUrl from "./assets/click.mp3";
 
 import { GameEvent, GameState, GameUpdate, STEP_TIME, isTargetedMove } from "./logic";
 import { Actor } from "./actor";
-import { getActorAt, getActorById, getDoorAt, getDungeonById, getRoomAt } from "./dungeon";
+import { getActorAt, getActorById, getDoorAt, getDungeonById, getRoomAt, getWallAt } from "./dungeon";
 import { PlayerClass, PlayerInfo } from "./player";
-import { InputEventListener, TileSet, centerText, drawImage, drawRect, drawText, drawTile, fillCircle, fillRect, loadTileSet, popState, pushState, registerInputEventListener, rotate, scale, screenHeight, screenWidth, setAlpha, translate, updateGraphics } from "./renderer/graphics";
+import { InputEventListener, TileSet, centerText, drawImage, drawRect, drawText, drawTile, fillCircle, fillRect, loadTileSet, popState, pushState, registerInputEventListener, rotate, scale, screenHeight, screenWidth, setAlpha, stringWidth, translate, updateGraphics } from "./renderer/graphics";
 import { intersects } from "./renderer/util";
 import { Sound, loadSound, playSound } from "./renderer/sound";
+import { errorLog } from "./log";
 
 /**
  * Dungeons of Glee
@@ -32,11 +34,13 @@ import { Sound, loadSound, playSound } from "./renderer/sound";
 const WALL_TOPS = [92, 92, 92, 92, 92, 92, 93, 94, 95];
 const WALL_FRONTS = [100, 100, 100, 100, 100, 100, 101, 102, 103];
 const PROJECTILE_TIME = 250;
+const GOLD_FLY_TIME = 500;
 
 // Palette taken from sprites
 const GREEN = "#436c15"; // movement
 const RED = "#cc3a3a"; // health
 const BLUE = "#2d7de9"; // magic
+const GOLD = "#ffb866"; // looted gold
 
 // Definition of the type of character the player can choose
 interface PlayerClassDef {
@@ -45,6 +49,7 @@ interface PlayerClassDef {
     type: PlayerClass;
 }
 
+// a floating damage/heal marker
 interface Marker {
     x: number;
     y: number;
@@ -55,6 +60,7 @@ interface Marker {
     delay: number;
 }
 
+// a sprite that flies from one map location to another
 interface Projectile {
     sx: number;
     sy: number;
@@ -96,7 +102,7 @@ export class DungeonsOfGlee implements InputEventListener {
         { sprite: 3, name: "Knight", type: "knight" },
     ];
 
-    markers: Marker[] = []; 
+    markers: Marker[] = [];
     projectiles: Projectile[] = [];
 
     // sound effect for door opening
@@ -119,15 +125,30 @@ export class DungeonsOfGlee implements InputEventListener {
     sfxMagic: Sound;
     // sound effect ranged attack
     sfxRanged: Sound;
+    // sound effect for going down stairs
+    sfxStairs: Sound;
 
     logo: HTMLImageElement;
     cokeandcode: HTMLImageElement;
-    paused =false;
+    paused = false;
 
     // true if we're testing locally, lets me pause the game for screenshots
     // etc
     devMode: boolean = window.location.hostname === "localhost";
-    
+
+    // we use the stairs event to allow us to display the old dungeon for a bit 
+    // and the old location while we fade out
+    stairsEvent?: GameEvent;
+    stairsFade = 0;
+    stairsFadingOut = true;
+
+    // used to do the effect of gold flying into your bag
+    goldFlyEvent?: GameEvent;
+    goldFlyStart = 0;
+
+    // true if we're looking at the loot screen
+    lootOpen = false;
+
     constructor() {
         // register ourselves as the input listener so
         // we get nofified of mouse presses
@@ -147,6 +168,7 @@ export class DungeonsOfGlee implements InputEventListener {
         this.sfxHeal = loadSound(sfxHealUrl);
         this.sfxMagic = loadSound(sfxMagicUrl);
         this.sfxRanged = loadSound(sfxRangedUrl);
+        this.sfxStairs = loadSound(sfxStepsUrl);
 
         this.logo = new Image();
         this.logo.src = logoUrl;
@@ -210,7 +232,7 @@ export class DungeonsOfGlee implements InputEventListener {
         // if we haven't seleccted a class yet then using the y mouse position
         // determine which class the player selected
         if (!this.localPlayerClass) {
-            const selected = Math.floor((y - 160) / 70);
+            const selected = Math.floor((y - 180) / 70);
             if (this.classes[selected]) {
                 Rune.actions.setPlayerType({ type: this.classes[selected].type });
             }
@@ -315,6 +337,7 @@ export class DungeonsOfGlee implements InputEventListener {
                 this.playSound(this.sfxRanged);
                 const attacker = getActorById(this.game, this.myActor?.dungeonId, event.actorId);
                 if (attacker) {
+                    // create a projectile to send for the arrow
                     this.projectiles.push({
                         sx: attacker.x,
                         sy: attacker.y,
@@ -331,6 +354,7 @@ export class DungeonsOfGlee implements InputEventListener {
                 this.playSound(this.sfxMagic);
                 const attacker = getActorById(this.game, this.myActor?.dungeonId, event.actorId);
                 if (attacker) {
+                    // create a projectile to send for the fireball
                     this.projectiles.push({
                         sx: attacker.x,
                         sy: attacker.y,
@@ -347,6 +371,7 @@ export class DungeonsOfGlee implements InputEventListener {
                 this.playSound(this.sfxHeal);
                 const healer = getActorById(this.game, this.myActor?.dungeonId, event.actorId);
                 if (healer) {
+                    // create a projectile to send for the heal effect
                     this.projectiles.push({
                         sx: healer.x,
                         sy: healer.y,
@@ -355,6 +380,7 @@ export class DungeonsOfGlee implements InputEventListener {
                         created: Date.now(),
                         sprite: 38
                     });
+                    // schedule a marker to show the effect of the heal
                     this.markers.push({
                         x: event.x, y: event.y, value: event.value, created: Date.now(),
                         source: healer,
@@ -374,6 +400,7 @@ export class DungeonsOfGlee implements InputEventListener {
                         this.playSound(this.sfxPain);
                     }
                 }
+                // show the damage marker
                 this.markers.push({
                     x: event.x, y: event.y, value: event.value, created: Date.now(),
                     source: attacker,
@@ -384,6 +411,8 @@ export class DungeonsOfGlee implements InputEventListener {
         }
         if (event.type === "died") {
             if (this.game && this.myActor) {
+                // add a special marker that causes a spinning actor to be displayed 
+                // which fades out for death cycle
                 this.markers.push({
                     x: event.x, y: event.y, value: event.value, created: Date.now(),
                     source: getActorById(this.game, this.myActor?.dungeonId, event.actorId),
@@ -391,6 +420,18 @@ export class DungeonsOfGlee implements InputEventListener {
                     delay: event.delay
                 });
             }
+        }
+        // we're going down the stairs so start the fade in / out
+        if (event.type === "stairs") {
+            this.playSound(this.sfxStairs);
+            this.stairsEvent = event;
+            this.stairsFade = 0;
+            this.stairsFadingOut = true;
+        }
+        // we've got gold do the fly through
+        if (event.type === "goldLoot") {
+            this.goldFlyEvent = event;
+            this.goldFlyStart = Date.now() + event.delay;
         }
     }
 
@@ -414,14 +455,14 @@ export class DungeonsOfGlee implements InputEventListener {
             // if we don't currently have a player class then show
             // the class selection screen
             if (!this.localPlayerClass) {
-                drawImage(this.logo, Math.floor((screenWidth() / 2) - (this.logo.width / 2)), 0, this.logo.width, this.logo.height);
+                drawImage(this.logo, Math.floor((screenWidth() / 2) - (this.logo.width / 2)), 10, this.logo.width, this.logo.height);
                 drawImage(this.cokeandcode, Math.floor((screenWidth() / 2) - (this.cokeandcode.width / 2)), screenHeight() - this.cokeandcode.height - 20, this.cokeandcode.width, this.cokeandcode.height);
-                centerText("Select Your Hero", 20, 140, "white");
+                centerText("Select Your Hero", 20, 160, "white");
                 let p = 0;
                 for (const clazz of this.classes) {
-                    fillRect(cx - 90, 160 + (p * 70), 180, 64, "rgb(40,40,40)");
-                    drawTile(this.tiles, cx - 80, 160 + (p * 70), clazz.sprite, 64, 64);
-                    drawText(cx - 10, 200 + (p * 70), clazz.name, 24, "white");
+                    fillRect(cx - 90, 180 + (p * 70), 180, 64, "rgb(40,40,40)");
+                    drawTile(this.tiles, cx - 80, 180 + (p * 70), clazz.sprite, 64, 64);
+                    drawText(cx - 10, 220 + (p * 70), clazz.name, 24, "white");
                     p++;
                 }
             } else {
@@ -430,6 +471,28 @@ export class DungeonsOfGlee implements InputEventListener {
                 pushState();
                 this.renderDungeon();
                 popState();
+
+                // do the nice little fade effect between levels
+                if (this.stairsEvent || !this.stairsFadingOut) {
+                    setAlpha(this.stairsFade);
+                    fillRect(0, 0, screenWidth(), screenHeight(), "black");
+                    setAlpha(1);
+
+                    if (this.stairsFadingOut) {
+                        this.stairsFade += 0.02;
+                        if (this.stairsFade >= 1) {
+                            this.stairsFade = 1;
+                            this.stairsFadingOut = false;
+                            this.stairsEvent = undefined;
+                        }
+                    } else {
+                        this.stairsFade -= 0.02;
+                        if (this.stairsFade <= 0) {
+                            this.stairsFade = 0;
+                            this.stairsFadingOut = true;
+                        }
+                    }
+                }
             }
 
             // render the bar of players at the top of the screen
@@ -457,6 +520,22 @@ export class DungeonsOfGlee implements InputEventListener {
                     }
                     p++;
                 }
+
+                const dungeon = getDungeonById(this.game, this.stairsEvent ? this.stairsEvent.value : this.myActor.dungeonId);
+                if (dungeon) {
+                    fillRect(0, 66, screenWidth(), 27, "rgba(0.4,0.4,0.4,0.5)");
+                    drawText(10, 87, "LEVEL " + dungeon.level, 20, "white");
+
+                    drawTile(this.tiles, screenWidth() - 50, 47, 39);
+                    // dirty hack - if there is gold flying don't show it as part of the gold in the game
+                    // state. We don't want the gold to appear in our total until we've completed our turn
+                    const goldStr = "" + (this.goldFlyEvent ? this.game.gold - this.goldFlyEvent.value : this.game.gold);
+                    drawText(screenWidth() - stringWidth(goldStr, 20) - 35, 87, goldStr, 20, GOLD);
+                }
+
+                // render the loot box
+                fillRect(screenWidth() - 64, 0, 64, 64, "rgb(40,40,40)");
+                drawTile(this.tiles, screenWidth() - 64, 0, this.lootOpen ? 66 : 74);
             }
 
             // render the status bar at the bottom
@@ -465,7 +544,7 @@ export class DungeonsOfGlee implements InputEventListener {
                 fillRect(0, screenHeight() - 70, screenWidth(), 70, "rgb(60,60,60)");
 
                 if (this.isDead) {
-                    fillRect(0, 84, screenWidth(), 27, "#444");
+                    fillRect(0, 100, screenWidth(), 27, "#444");
                     centerText("YOU HAVE DIED", 20, 104, "white");
                 }
                 if (this.game.whoseTurn === this.localPlayerId) {
@@ -510,7 +589,33 @@ export class DungeonsOfGlee implements InputEventListener {
                     drawText(cx + 50, screenHeight() - 16, "" + this.myActor.attack, 24, "white");
                     drawTile(this.tiles, cx + 90, screenHeight() - 38, 69, 28, 28);
                     drawText(cx + 120, screenHeight() - 16, "" + this.myActor.defense, 24, "white");
+                } else {
+                    errorLog("No local actor found");
                 }
+            }
+        }
+
+        // if we've just looted gold draw it flying to 
+        // the gold store
+        if (this.goldFlyEvent) {
+            // find the screen coordinates of the death that happened
+            const xp = (this.goldFlyEvent.x * this.tileSize) + this.offsetx;
+            const yp = (this.goldFlyEvent.y * this.tileSize) + this.offsety;
+            const bagx = screenWidth() - 50;
+            const bagy = 60;
+            const dx = bagx - xp;
+            const dy = bagy - yp;
+            const delta = (Date.now() -  this.goldFlyStart) / GOLD_FLY_TIME;
+            if (delta < 1) {
+                if (delta > 0) {
+                    // gold is flying
+                    const x = xp + (dx * delta);
+                    const y = yp + (dy * delta);
+                    drawTile(this.tiles, x, y, 39, this.tileSize, this.tileSize);
+                }
+            } else {
+                // we're done
+                this.goldFlyEvent = undefined;
             }
         }
 
@@ -524,7 +629,7 @@ export class DungeonsOfGlee implements InputEventListener {
     // as semi-transparent markers over the top fo the dungeon
     renderOptions(): void {
         if (this.game && this.myActor) {
-            const dungeon = getDungeonById(this.game, this.myActor.dungeonId);
+            const dungeon = getDungeonById(this.game, this.stairsEvent ? this.stairsEvent.value : this.myActor.dungeonId);
             if (!dungeon) {
                 return;
             }
@@ -562,7 +667,7 @@ export class DungeonsOfGlee implements InputEventListener {
     // that big. Should really only render what would be in view
     renderDungeon(): void {
         if (this.game && this.myActor) {
-            const dungeon = getDungeonById(this.game, this.myActor.dungeonId);
+            const dungeon = getDungeonById(this.game, this.stairsEvent ? this.stairsEvent.value : this.myActor.dungeonId);
             if (!dungeon) {
                 return;
             }
@@ -573,6 +678,11 @@ export class DungeonsOfGlee implements InputEventListener {
             // work out the camera position based on the local actor
             let x = this.myActor.x;
             let y = this.myActor.y;
+            if (this.stairsEvent) {
+                x = this.stairsEvent.x;
+                y = this.stairsEvent.y;
+            }
+
             const delta = Rune.gameTime() - this.myActor.lt;
             if (delta < STEP_TIME) {
                 const lerp = delta / STEP_TIME;
@@ -600,7 +710,6 @@ export class DungeonsOfGlee implements InputEventListener {
 
                         drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, 89 + (Math.abs((tx * ty) % 2)) * 8, this.tileSize, this.tileSize);
                         const door = getDoorAt(dungeon, tx, ty);
-
                         if (door) {
                             if (door.open) {
                                 drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, 98, this.tileSize, this.tileSize);
@@ -610,17 +719,11 @@ export class DungeonsOfGlee implements InputEventListener {
                         } else {
                             // theres some randomness here to make the walls sides and top vary from a list of potential images. it's
                             // based on the x/y position so its deterministic 
-                            if ((x === 0) || (x === room.width - 1)) {
-                                drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, WALL_TOPS[Math.abs(((tx * ty) % WALL_TOPS.length))], this.tileSize, this.tileSize);
-                            } else if (y === 0) {
-                                drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, WALL_FRONTS[Math.abs(((tx * ty) % WALL_FRONTS.length))], this.tileSize, this.tileSize);
-                            }
-                            if (y === room.height - 1) {
-                                const roomBelow = getRoomAt(dungeon, tx, ty + 1);
-                                if (roomBelow && (roomBelow.y === ty + 1 || tx === roomBelow.x || tx === roomBelow.width - 1)) {
+                            if (getWallAt(dungeon, tx, ty)) {
+                                if (getWallAt(dungeon, tx, ty + 1)) {
                                     drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, WALL_TOPS[Math.abs(((tx * ty) % WALL_TOPS.length))], this.tileSize, this.tileSize);
                                 } else {
-                                    drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, WALL_FRONTS[Math.abs((tx * ty) % WALL_FRONTS.length)], this.tileSize, this.tileSize);
+                                    drawTile(this.tiles, tx * this.tileSize, ty * this.tileSize, WALL_FRONTS[Math.abs(((tx * ty) % WALL_FRONTS.length))], this.tileSize, this.tileSize);
                                 }
                             }
                         }
@@ -630,6 +733,11 @@ export class DungeonsOfGlee implements InputEventListener {
                 // if we're in the start room, draw the stairs
                 if (room.start) {
                     drawTile(this.tiles, (room.x + room.width - 2) * this.tileSize, (room.y + 1) * this.tileSize, 88, this.tileSize, this.tileSize);
+                }
+
+                // if we're in the last room, draw the stairs down
+                if (room.stairsDown) {
+                    drawTile(this.tiles, (room.x + Math.floor(room.width / 2)) * this.tileSize, (room.y + Math.floor(room.height / 2)) * this.tileSize, 96, this.tileSize, this.tileSize);
                 }
             }
 

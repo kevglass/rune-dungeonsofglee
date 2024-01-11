@@ -17,7 +17,7 @@ export const PLAYER_CLASS_DEFS: Record<PlayerClass, ActorDef> = {
         magic: 0,
         moves: 5,
         good: true,
-        ranged: false,
+        ranged: false
     },
     "witch": {
         name: "Witch",

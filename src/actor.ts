@@ -1,5 +1,10 @@
 import { GameState } from "./logic";
 
+export interface MinMax {
+    min: number;
+    max: number;
+}
+
 // The definition of a actor type describing its attributes
 // at creation
 export interface ActorDef {
@@ -12,6 +17,7 @@ export interface ActorDef {
     sprite: number;
     good: boolean;
     ranged: boolean;
+    goldOnKill?: MinMax;
 }
 
 // An actor is a player or monsters in the world. They have stats
@@ -38,6 +44,7 @@ export interface Actor {
     dungeonId: number;
     facingRight: boolean;
     ranged: boolean;
+    goldOnKill?: MinMax;
 }
 
 // create a new actor in a specific dungeon with some initial characteristics. This is used for both
@@ -64,6 +71,14 @@ export function createActor(game: GameState, def: ActorDef, dungeonId: number, x
         maxMagic: def.magic,
         dungeonId: dungeonId,
         facingRight: true,
-        ranged: def.ranged
+        ranged: def.ranged,
+        goldOnKill: def.goldOnKill
     };
+}
+
+export function copyActor(actor: Actor): Actor {
+    const copy = {};
+    Object.assign(copy, actor);
+
+    return copy as Actor;
 }

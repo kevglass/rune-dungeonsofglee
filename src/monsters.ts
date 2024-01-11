@@ -14,6 +14,10 @@ const MONSTER_DEFS: Record<string, ActorDef> = {
         sprite: 8,
         good: false,
         ranged: false,
+        goldOnKill: {
+            min: 1,
+            max: 2
+        }
     }
 }
 
@@ -29,7 +33,9 @@ export function findActiveMonsters(game: GameState): Actor[] {
     const result: Actor[] = [];
 
     game.dungeons.forEach((dungeon) => {
-        result.push(...dungeon.actors.filter(a => !a.good && getRoomAt(dungeon, a.x, a.y)?.discovered));
+        if (dungeon.actors.find(a => a.good)) {
+            result.push(...dungeon.actors.filter(a => !a.good && getRoomAt(dungeon, a.x, a.y)?.discovered));
+        }
     });
 
     return result;

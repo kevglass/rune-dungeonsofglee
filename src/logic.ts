@@ -1,19 +1,22 @@
 import type { OnChangeAction, OnChangeEvent, PlayerId, Players, RuneClient } from "rune-games-sdk/multiplayer"
 import { PLAYER_CLASS_DEFS, PlayerClass, PlayerInfo } from "./player";
-import { Actor, createActor } from "./actor";
+import { Actor, copyActor, createActor } from "./actor";
 import { blocked, calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getDungeonById, getRoomAt, Point, Room } from "./dungeon";
 import { distanceToHero, findActiveMonsters, getAdjacentHero, standingNextToHero } from "./monsters";
 import { debugLog, errorLog } from "./log";
+import { Item } from "./items";
 
 export const STEP_TIME = 1000 / 3;
 
-export type GameEventType = "damage" | "open" | "step" | "died" | "melee" | "shoot" | "magic" | "heal" | "turnChange";
+export type GameEventType = "damage" | "open" | "step" | "died" | "melee" | "shoot" | "magic" | "heal" | "turnChange" | "stairs" | "goldLoot";
 export type GameMoveType = "move" | "attack" | "open" | "heal" | "shoot" | "magic";
 
 export function isTargetedMove(type: GameMoveType): boolean {
-  return (type === "attack") || (type === "heal") || (type === "shoot") || (type === "magic");  
-} 
+  return (type === "attack") || (type === "heal") || (type === "shoot") || (type === "magic");
+}
 
+// an event that has happened in the logic that the
+// renderer will need 
 export interface GameEvent {
   type: GameEventType;
   x: number;
@@ -24,6 +27,8 @@ export interface GameEvent {
 }
 
 export interface GameState {
+  gold: number;
+  items: Item[];
   nextId: number;
   playerOrder: string[];
   deadHeroes: Actor[];
@@ -36,6 +41,9 @@ export interface GameState {
   events: GameEvent[];
 }
 
+// an activity taking a place - this is a move
+// thats been selected and is causing actors
+// to move around etc
 export interface Activity {
   dungeonId: number;
   actorId: number;
@@ -44,6 +52,8 @@ export interface Activity {
   ty: number;
 }
 
+// a single potential move in the game - 
+// move to a location, attach an enemy etc
 export interface GameMove {
   x: number;
   y: number;
@@ -176,6 +186,26 @@ function rollCombat(attacker: Actor, target?: Actor, multiplier?: number): numbe
   return Math.max(0, skulls - shields);
 }
 
+// kill an actor by generating effects and removing them
+// from the game model
+function kill(game: GameState, dungeon: Dungeon, target: Actor, extraDelay = 0): void {
+  target.health = 0;
+  dungeon.actors.splice(dungeon.actors.indexOf(target), 1);
+  addGameEvent(game, -1, "died", 400 + extraDelay, target.x, target.y, target.sprite);
+
+  if (target.good) {
+    game.deadHeroes.push(target);
+  } else {
+    // do the loot!
+    if (target.goldOnKill) {
+      const lootGold = Math.floor(Math.random() * (target.goldOnKill.max - target.goldOnKill.min)) + target.goldOnKill.min;
+    
+      game.gold += lootGold;
+      addGameEvent(game, -1, "goldLoot", 400 + extraDelay, target.x, target.y, lootGold);
+    }
+  }
+}
+
 // Run the currently move - this is called one per logic tick (MOVE_TIME). Apply
 // the next step in the path or the actual action at the end
 function applyCurrentActivity(game: GameState): boolean {
@@ -185,7 +215,7 @@ function applyCurrentActivity(game: GameState): boolean {
     const dungeon = getDungeonById(game, game.currentActivity.dungeonId);
     if (dungeon) {
       // find the actor that's taking the action
-      const actor = dungeon.actors.find(a => a.id === game.currentActivity?.actorId);
+      let actor = dungeon.actors.find(a => a.id === game.currentActivity?.actorId);
       if (actor) {
         // find the next step in the path/action based on the path find we did earlier
         const nextStep = findNextStep(game, actor, game.currentActivity.tx, game.currentActivity.ty);
@@ -228,13 +258,7 @@ function applyCurrentActivity(game: GameState): boolean {
 
             target.health -= damage;
             if (target.health <= 0) {
-              target.health = 0;
-              dungeon.actors.splice(dungeon.actors.indexOf(target), 1);
-              addGameEvent(game, -1, "died", 400, nextStep.x, nextStep.y, target.sprite);
-
-              if (target.good) {
-                game.deadHeroes.push(target);
-              }
+              kill(game, dungeon, target, 300);
             }
           }
 
@@ -259,13 +283,7 @@ function applyCurrentActivity(game: GameState): boolean {
 
             target.health -= damage;
             if (target.health <= 0) {
-              target.health = 0;
-              dungeon.actors.splice(dungeon.actors.indexOf(target), 1);
-              addGameEvent(game, -1, "died", 400, nextStep.x, nextStep.y, target.sprite);
-
-              if (target.good) {
-                game.deadHeroes.push(target);
-              }
+              kill(game, dungeon, target, 300);
             }
           }
 
@@ -309,13 +327,7 @@ function applyCurrentActivity(game: GameState): boolean {
 
             target.health -= damage;
             if (target.health <= 0) {
-              target.health = 0;
-              dungeon.actors.splice(dungeon.actors.indexOf(target), 1);
-              addGameEvent(game, -1, "died", 200, nextStep.x, nextStep.y, target.sprite);
-
-              if (target.good) {
-                game.deadHeroes.push(target);
-              }
+              kill(game, dungeon, target);
             }
           }
           // if we've already moved then engaging in combat
@@ -325,10 +337,74 @@ function applyCurrentActivity(game: GameState): boolean {
           }
           calcMoves(game, actor);
         }
-
         // if this was the last step then recalculate the available moves
         // for the current turn holder.
         if (nextStep && nextStep.x === game.currentActivity.tx && nextStep.y === game.currentActivity.ty) {
+          // check if the player ended up on the stairs down, if so we need to move to
+          // the next dungeon
+          const room = getRoomAt(dungeon, actor.x, actor.y);
+          if (actor.good && room && room.stairsDown) {
+            const sx = room.x + Math.floor(room.width / 2);
+            const sy = room.y + Math.floor(room.height / 2);
+            if (sx === actor.x && sy === actor.y) {
+              const dungeonIndex = game.dungeons.findIndex(d => d.id === dungeon.id) + 1;
+              // if we're the first one to reach this level, then 
+              // genreate a new dungeon
+              if (dungeonIndex > game.dungeons.length - 1) {
+                game.dungeons.push(generateDungeon(game, dungeon.level + 1));
+              }
+
+              // move the actor to the next dungeons and update its record
+              const nextDungeon = game.dungeons[dungeonIndex];
+              const startRoom = nextDungeon.rooms.find(r => r.start);
+
+              // scan through all the potential start rooms looking for an empty space
+              if (startRoom) {
+                const possibleStarts: Point[] = [];
+                for (let x = 1; x < startRoom.width - 1; x++) {
+                  for (let y = 1; y < startRoom.height - 1; y++) {
+                    if (x === startRoom.width - 2 && y === 1) {
+                      continue;
+                    }
+                    if (!getActorAt(nextDungeon, startRoom.x + x, startRoom.y + y) && !blocked(nextDungeon, undefined, startRoom.x + x, startRoom.y + y)) {
+                      possibleStarts.push({ x: x + startRoom.x, y: y + startRoom.y });
+                    }
+                  }
+                }
+                // if we can find a start location then move the actor
+                // and update the player record if there is any
+                if (possibleStarts.length > 0) {
+                  const start: Point = possibleStarts[Math.floor(Math.random() * possibleStarts.length)];
+                  
+                  dungeon.actors.splice(dungeon.actors.indexOf(actor), 1); 
+                  // for some reason Rune doesn't like me trying to reuse the actor object
+                  // here so we'll take a copy instead
+                  const newActor: Actor = copyActor(actor);
+                  newActor.dungeonId = nextDungeon.id;
+                  newActor.x = start.x;
+                  newActor.y = start.y;
+                  newActor.lx = start.x;
+                  newActor.ly = start.y;
+                  newActor.lt = 0;
+                  nextDungeon.actors.push(newActor);
+
+                  for (const info of Object.values(game.playerInfo)) {
+                    if (info.actorId === actor.id) {
+                      info.dungeonId = nextDungeon.id;
+                    }
+                  }
+
+                  addGameEvent(game, newActor.id, "stairs", 0, actor.x, actor.y, dungeon.id);
+                  actor = newActor;
+                } else {
+                  errorLog("No start places in new dungeon");
+                }
+              } else {
+                errorLog("No start room in new dungeon");
+              }
+            }
+          }
+
           game.currentActivity = undefined;
           calcMoves(game, actor);
         }
@@ -406,6 +482,8 @@ Rune.initLogic({
     // this is the initial game state. In our case we'll just generate a dungeon 
     // and move on
     const initialState: GameState = {
+      gold: 0,
+      items: [],
       nextId: 1,
       playerOrder: [],
       deadHeroes: [],
@@ -414,10 +492,10 @@ Rune.initLogic({
       dungeons: [],
       possibleMoves: [],
       lastUpdate: 0,
-      events: []
+      events: [],
     }
 
-    initialState.dungeons.push(generateDungeon(initialState));
+    initialState.dungeons.push(generateDungeon(initialState, 1));
     return initialState;
   },
   actions: {

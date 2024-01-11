@@ -1,4 +1,5 @@
 import { Actor } from "./actor";
+import { errorLog } from "./log";
 import { GameMove, GameState } from "./logic";
 import { createMonster } from "./monsters";
 
@@ -28,6 +29,7 @@ export interface Room {
     width: number;
     height: number;
     depth: number;
+    stairsDown?: boolean;
 }
 
 // The dungeon that the players and monsters live in. Dungeons
@@ -37,6 +39,7 @@ export interface Room {
 // (players/monsters)
 export interface Dungeon {
     id: number;
+    level: number;
     rooms: Room[];
     doors: Door[];
     actors: Actor[];
@@ -66,23 +69,26 @@ enum Direction {
 // find an existing room and pick a direction (N/S/E/W) - try to generate a room in that
 // direction. If it fits (i.e. it doesn't clash with any other existing room) then 
 // place it and add an appropriate door
-export function generateDungeon(game: GameState): Dungeon {
+export function generateDungeon(game: GameState, level: number): Dungeon {
     const dungeon: Dungeon = {
         id: game.nextId++,
+        level: level,
         rooms: [],
         doors: [],
         actors: []
     }
 
     // the target number of rooms to create
-    const targetCount = 20;
+    const targetCount = 2 + Math.floor(level / 3);
     // guard condition for the rare case
     // we can't place 20 rooms
     let maxCycles = 1000;
 
     // add the start room
-    dungeon.rooms.push({ x: 0, y: 0, width: 5, height: 5, discovered: true, start: true, depth: 0 });
+    const startRoom = { x: 0, y: 0, width: 5 + Math.floor(Math.random() * 2), height: 5 + Math.floor(Math.random() * 2), discovered: true, start: true, depth: 0 };
+    dungeon.rooms.push(startRoom);
 
+    let lastRoom: Room = startRoom;
     while (dungeon.rooms.length < targetCount && maxCycles > 0) {
         maxCycles--;
 
@@ -102,6 +108,15 @@ export function generateDungeon(game: GameState): Dungeon {
             start: false,
             depth: source.depth + 1
         };
+
+        // ensure we get some corridors
+        if (Math.random() < 0.1) {
+            if (Math.random() < 0.5) {
+                newRoom.height = 3;
+            } else {
+                newRoom.width = 3;
+            }
+        }
 
         // based ont he direction place the room relative to the source room
         if (dir === Direction.NORTH) {
@@ -138,6 +153,11 @@ export function generateDungeon(game: GameState): Dungeon {
                 dungeon.doors.push({ x: source.x + source.width - 1, y: source.y + Math.floor(source.height / 2), open: false });
             }
 
+            // if we have a room further from the start than the best so far
+            // then make this the last room
+            if (newRoom.depth > lastRoom.depth) {
+                lastRoom = newRoom;
+            }
             // add a random monster to the room
             const mx = Math.floor(Math.random() * (newRoom.width - 2)) + 1 + newRoom.x;
             const my = Math.floor(Math.random() * (newRoom.height - 2)) + 1 + newRoom.y;
@@ -146,6 +166,8 @@ export function generateDungeon(game: GameState): Dungeon {
         }
     }
 
+    lastRoom.stairsDown = true;
+
     return dungeon;
 }
 
@@ -153,8 +175,12 @@ export function generateDungeon(game: GameState): Dungeon {
 // wrapped incase this gets poor performance later. Note that a game
 // can have multiple dungeons running at the same time - this is 
 // for multiple levels
-export function getDungeonById(state: GameState, id: number) {
-    return state.dungeons.find(d => d.id === id);
+export function getDungeonById(state: GameState, id: number): Dungeon | undefined {
+    const result = state.dungeons.find(d => d.id === id);
+    if (!result) {
+        errorLog("Dungeon with ID: " + id + " not found");
+    }
+    return result;
 }
 
 // Check whether a particular location blocks movement. The rules for this
@@ -299,19 +325,19 @@ function blocksLOS(dungeon: Dungeon, source: Actor, target: Actor, x: number, y:
 function distanceForLOS(source: Actor, target: Actor): number {
     const dx = target.x - source.x;
     const dy = target.y - source.y;
-    return Math.sqrt((dx*dx) + (dy*dy));
+    return Math.sqrt((dx * dx) + (dy * dy));
 }
 
 // check if there is a line of sight (LOS) between source and target
 function hasLOS(dungeon: Dungeon, source: Actor, target: Actor): boolean {
     let dx = target.x - source.x;
     let dy = target.y - source.y;
-    const len = Math.sqrt((dx*dx) + (dy*dy));
+    const len = Math.sqrt((dx * dx) + (dy * dy));
     dx /= len * 2;
     dy /= len * 2;
-    for (let i=0;i<len*2;i++) {
-        const x = source.x + 0.5 + (i*dx);
-        const y = source.y + 0.5 + (i*dy);
+    for (let i = 0; i < len * 2; i++) {
+        const x = source.x + 0.5 + (i * dx);
+        const y = source.y + 0.5 + (i * dy);
         if (blocksLOS(dungeon, source, target, Math.floor(x), Math.floor(y))) {
             return false;
         }
@@ -464,4 +490,26 @@ export function getAllRoomsAt(dungeon: Dungeon, x: number, y: number): Room[] {
     return dungeon.rooms.filter(room =>
         x >= room.x && y >= room.y && x < room.x + room.width && y < room.y + room.height
     );
+}
+
+export function getWallAt(dungeon: Dungeon, x: number, y: number): boolean {
+    const door = getDoorAt(dungeon, x, y);
+    if (door) {
+        return false;
+    }
+
+    const room = getRoomAt(dungeon, x, y);
+    if (room) {
+        return x === room.x || y === room.y || x === room.x + room.width - 1 || y === room.y + room.height - 1;
+    }
+
+    return false;
+}
+
+export function dungeonHasHeroes(dungeon?: Dungeon): boolean {
+    if (!dungeon) {
+        return false;
+    }
+
+    return dungeon.actors.find(a => a.good) !== undefined;
 }
