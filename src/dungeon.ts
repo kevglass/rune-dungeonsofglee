@@ -229,10 +229,6 @@ export function blocked(dungeon: Dungeon, actor: Actor | undefined, x: number, y
 // Using DJK to flood the map from the actor moving's location to determine all the possible
 // moves that can be made
 function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, lastX: number, lastY: number, x: number, y: number, depth: number, max: number): void {
-    // if we've searched further than the player can move - then give up
-    if (depth > max) {
-        return;
-    }
     let existingMove = game.possibleMoves.find(m => m.x === x && m.y === y);
 
     // we can't open doors or attack opponents if we can't stand in the square next to them
@@ -271,6 +267,11 @@ function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, lastX: 
             }
             return;
         }
+    }
+    
+    // if we've searched further than the player can move - then give up
+    if (depth > max) {
+        return;
     }
 
     // if the location is blocked then we can't flood any further

@@ -1,8 +1,14 @@
+import { ItemType } from "./items";
 import { GameState } from "./logic";
 
 export interface MinMax {
     min: number;
     max: number;
+}
+
+export interface ItemChance {
+    chance: number;
+    item: ItemType;
 }
 
 // The definition of a actor type describing its attributes
@@ -18,6 +24,7 @@ export interface ActorDef {
     good: boolean;
     ranged: boolean;
     goldOnKill?: MinMax;
+    loot?: ItemChance[];
 }
 
 // An actor is a player or monsters in the world. They have stats

@@ -17,7 +17,10 @@ const MONSTER_DEFS: Record<string, ActorDef> = {
         goldOnKill: {
             min: 1,
             max: 2
-        }
+        },
+        loot: [
+            { item: "heal-potion", chance: 1 }
+        ]
     }
 }
 
