@@ -12,16 +12,17 @@ import sfxRangedUrl from "./assets/arrow.mp3";
 import sfxMagicUrl from "./assets/fireball.mp3";
 import sfxHealUrl from "./assets/heal.mp3";
 import sfxClickUrl from "./assets/click.mp3";
+import sfxGlugUrl from "./assets/glug.mp3";
 
 import { GameEvent, GameState, GameUpdate, STEP_TIME, isTargetedMove } from "./logic";
 import { Actor } from "./actor";
 import { getActorAt, getActorById, getChestAt, getDoorAt, getDungeonById, getRoomAt, getWallAt } from "./dungeon";
-import { PlayerClass, PlayerInfo } from "./player";
+import { PLAYER_CLASS_DEFS, PlayerClass, PlayerInfo } from "./player";
 import { InputEventListener, TileSet, centerText, drawImage, drawRect, drawText, drawTile, fillCircle, fillRect, loadTileSet, popState, pushState, registerInputEventListener, rotate, scale, screenHeight, screenWidth, setAlpha, stringWidth, translate, updateGraphics } from "./renderer/graphics";
 import { intersects } from "./renderer/util";
 import { Sound, loadSound, playSound } from "./renderer/sound";
 import { errorLog } from "./log";
-import { getItemIcon } from "./items";
+import { ItemInfo, getItemInfo } from "./items";
 
 /**
  * Dungeons of Glee
@@ -129,6 +130,8 @@ export class DungeonsOfGlee implements InputEventListener {
     sfxRanged: Sound;
     // sound effect for going down stairs
     sfxStairs: Sound;
+    // sounds for items
+    sfxItems: Record<string, Sound> = {}
 
     logo: HTMLImageElement;
     cokeandcode: HTMLImageElement;
@@ -155,6 +158,8 @@ export class DungeonsOfGlee implements InputEventListener {
     // true if we're looking at the loot screen
     lootOpen = false;
 
+    selectedItemIndex = -1;
+
     constructor() {
         // register ourselves as the input listener so
         // we get nofified of mouse presses
@@ -175,6 +180,8 @@ export class DungeonsOfGlee implements InputEventListener {
         this.sfxMagic = loadSound(sfxMagicUrl);
         this.sfxRanged = loadSound(sfxRangedUrl);
         this.sfxStairs = loadSound(sfxStepsUrl);
+
+        this.sfxItems['glug'] = loadSound(sfxGlugUrl);
 
         this.logo = new Image();
         this.logo.src = logoUrl;
@@ -225,7 +232,7 @@ export class DungeonsOfGlee implements InputEventListener {
     }
 
     // notification that the mouse has been pressed
-    mouseDown(x: number, y: number, button: number): void {
+    mouseUp(x: number, y: number, button: number): void {
         if (button !== 0 && this.devMode) {
             this.paused = !this.paused;
             if (!this.paused) {
@@ -247,6 +254,43 @@ export class DungeonsOfGlee implements InputEventListener {
                 Rune.actions.clearType();
                 return;
             }
+
+            if (x > screenWidth() - 64 && y < 64) {
+                this.lootOpen = !this.lootOpen;
+                this.selectedItemIndex = -1;
+                return;
+            }
+
+            if (this.lootOpen) {
+                // do the loot UI mouse controls
+                const tx = Math.floor((x - (Math.floor(screenWidth() / 2) - 134)) / 68);
+                const ty = Math.floor((y - 100) / 68);
+                if (tx >= 0 && ty >= 0 && tx < 4 && ty < 4) {
+                    this.selectedItemIndex = tx + (ty * 4);
+                }
+
+                if (this.game) {
+                    // clicking the use area
+                    if (intersects(x, y, Math.floor(screenWidth() / 2) - 84, 380, 172, 30)) {
+                        const selectedItem = this.game.items[this.selectedItemIndex];
+                        if (selectedItem && this.myPlayerInfo) {
+                            const info: ItemInfo = getItemInfo(selectedItem.type);
+                            if (!info.onlyUsedBy || info.onlyUsedBy.includes(this.myPlayerInfo.type)) {
+                                // use the item
+                                Rune.actions.useItem({ id: selectedItem.id });
+                            }
+                        }
+
+                        return;
+                    }
+                }
+
+                if (y > 400) {
+                    this.lootOpen = false;
+                }
+                return;
+            }
+
             // otherwise we're in game. Work out which tile the player 
             // clicked based on the camera offset.
             const tx = Math.floor((x - this.offsetx) / this.tileSize);
@@ -355,6 +399,14 @@ export class DungeonsOfGlee implements InputEventListener {
                         created: Date.now(),
                         sprite: 40
                     });
+                }
+            }
+        }
+        if (event.type === "useItem") {
+            if (event.item) {
+                const info = getItemInfo(event.item);
+                if (info && info.sound && this.sfxItems[info.sound]) {
+                    this.playSound(this.sfxItems[info.sound]);
                 }
             }
         }
@@ -647,11 +699,49 @@ export class DungeonsOfGlee implements InputEventListener {
                             // gold is flying
                             const x = xp + (dx * delta);
                             const y = yp + (dy * delta);
-                            drawTile(this.tiles, x, y, getItemIcon(this.itemFlyEvent.item), this.tileSize, this.tileSize);
+                            drawTile(this.tiles, x, y, getItemInfo(this.itemFlyEvent.item).icon, this.tileSize, this.tileSize);
                         }
                     } else {
                         // we're done
                         this.goldFlyEvent = undefined;
+                    }
+                }
+
+                // render the inventory if open
+                if (this.lootOpen) {
+                    pushState();
+                    translate(Math.floor(screenWidth() / 2) - 134, 100);
+                    fillRect(0, 0, 272, 272 + 50, "rgb(40,40,40)");
+                    for (let y = 0; y < 4; y++) {
+                        for (let x = 0; x < 4; x++) {
+                            fillRect(2 + (x * 68), 2 + (y * 68), 64, 64, "rgba(0,0,0,0.5)");
+                            const index = x + (y * 4);
+                            const item = this.game.items[index];
+                            if (item) {
+                                drawTile(this.tiles, 2 + (x * 68), 2 + (y * 68), getItemInfo(item.type).icon);
+                                const countStr = "" + item.count;
+                                drawText(2 + (x * 68) + 60 - stringWidth(countStr, 14), 2 + (y * 68) + 60, countStr, 14, "white");
+                                if (this.selectedItemIndex === index) {
+                                    drawRect(2 + (x * 68), 2 + (y * 68), 64, 64, GOLD);
+                                }
+                            }
+                        }
+                    }
+
+                    popState();
+
+                    const selectedItem = this.game.items[this.selectedItemIndex];
+                    if (selectedItem && this.myPlayerInfo) {
+                        const info: ItemInfo = getItemInfo(selectedItem.type);
+                        if (info.onlyUsedBy && !info.onlyUsedBy.includes(this.myPlayerInfo.type)) {
+                            drawText(Math.floor(screenWidth() / 2) - 50, 402, "ONLY", 20, "white");
+                            for (const type of info.onlyUsedBy) {
+                                drawTile(this.tiles, Math.floor(screenWidth() / 2) + 10, 372, PLAYER_CLASS_DEFS[type].sprite, 48, 48);
+                            }
+                        } else {
+                            fillRect(Math.floor(screenWidth() / 2) - 84, 380, 172, 30, "rgb(60,60,60)")
+                            centerText("USE", 20, 402, "white");
+                        }
                     }
                 }
             }

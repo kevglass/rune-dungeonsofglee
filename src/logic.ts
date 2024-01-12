@@ -4,11 +4,11 @@ import { Actor, copyActor, createActor } from "./actor";
 import { blocked, calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getChestAt, getDungeonById, getRoomAt, Point, Room } from "./dungeon";
 import { createMonsterItemLoot, distanceToHero, findActiveMonsters, getAdjacentHero, standingNextToHero } from "./monsters";
 import { debugLog, errorLog } from "./log";
-import { Item, ItemType, addItemToInvetory as addItemToInventory, createItem } from "./items";
+import { Item, ItemType, addItemToInvetory as addItemToInventory, createItem, removeItemFromInventory } from "./items";
 
 export const STEP_TIME = 1000 / 3;
 
-export type GameEventType = "damage" | "open" | "step" | "died" | "melee" | "shoot" | "magic" | "heal" | "turnChange" | "stairs" | "goldLoot" | "itemLoot" | "chestOpen";
+export type GameEventType = "damage" | "open" | "step" | "died" | "melee" | "shoot" | "magic" | "heal" | "turnChange" | "stairs" | "goldLoot" | "itemLoot" | "chestOpen" | "useItem";
 export type GameMoveType = "move" | "attack" | "open" | "heal" | "shoot" | "magic" | "chest";
 
 export function isTargetedMove(type: GameMoveType): boolean {
@@ -77,6 +77,8 @@ type GameActions = {
   endTurn: () => void;
   // clear the selected type so it can be reselected
   clearType(): () => void;
+  // use an item from the inventory
+  useItem(params: { id: number }): () => void;
 }
 
 declare global {
@@ -255,8 +257,6 @@ function applyCurrentActivity(game: GameState): boolean {
 
         // if we're opening a chest it takes up our action point
         if (nextStep && nextStep.type === "chest") {
-          actor.actions--;
-
           const chest = getChestAt(dungeon, nextStep.x, nextStep.y);
           if (chest) {
             chest.open = true;
@@ -265,13 +265,6 @@ function applyCurrentActivity(game: GameState): boolean {
             addGameEvent(game, actor.id, "chestOpen", 0);
             addGameEvent(game, actor.id, "itemLoot", 0, nextStep.x, nextStep.y, 0, item.type);
           }
-
-          // if we've already moved then engaging in combat
-          // uses up the rest
-          if (actor.moves < actor.maxMoves) {
-            actor.moves = 0;
-          }
-          calcMoves(game, actor);
         }
 
         if (nextStep && nextStep.type === "shoot") {
@@ -441,6 +434,23 @@ function applyCurrentActivity(game: GameState): boolean {
   }
 
   return false;
+}
+
+// use an item from the inventory
+function useItem(game: GameState, playerId: PlayerId, item: Item): void {
+  const playerInfo = game.playerInfo[playerId];
+  if (playerInfo) {
+    const actor = getActorById(game, playerInfo.dungeonId, playerInfo.actorId);
+    if (actor) {
+      if (item.type === 'heal-potion') {
+        if (actor.health < actor.maxHealth) {
+          actor.health++;
+          removeItemFromInventory(game, item.type);
+          addGameEvent(game, actor.id, "useItem", 0, 0, 0, 0, item.type);
+        }
+      }
+    }
+  }
 }
 
 // play the evil characters
@@ -638,8 +648,14 @@ Rune.initLogic({
     clearType: (params, context) => {
       context.game.playerOrder.splice(context.game.playerOrder.indexOf(context.playerId), 1);
       delete context.game.playerInfo[context.playerId];
-
-    }
+    },
+    useItem: ({id}, context) => {
+      const item = context.game.items.find(item => item.id === id);
+      if (item) {
+        // found item to use
+        useItem(context.game, context.playerId, item);
+      }
+    },
   },
   update: (context) => {
     // clear the events list for this frame. It'd be nice if there was a way to fire

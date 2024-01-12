@@ -4,7 +4,7 @@ import { errorLog } from "./log";
 import { GameMove, GameState } from "./logic";
 import { createMonster } from "./monsters";
 
-export const CHANCE_OF_CHEST = 0.1;
+export const CHANCE_OF_CHEST = 0.2;
 
 // A wrapper for a single location in a dungeon
 export interface Point {
@@ -307,7 +307,7 @@ function floodFillMoves(game: GameState, dungeon: Dungeon, actor: Actor, lastX: 
 
         // consider opening chests
         const chest = getChestAt(dungeon, x, y);
-        if (chest && !chest.open && actor.good && actor.actions > 0) {
+        if (chest && !chest.open && actor.good) {
             // if there was already an open chest move found at this location 
             // use the one that was closer in moves to the actor 
             if (existingMove) {

@@ -1,15 +1,25 @@
 import { GameState } from "./logic";
+import { PlayerClass } from "./player";
 
 export type ItemType = "heal-potion";
 
-// evil internalised configuration that should
-// be in asset management somewhere
-const ITEM_ICONS: Record<ItemType, number> = {
-    "heal-potion": 76,
+export interface ItemInfo {
+    icon: number;
+    onlyUsedBy?: PlayerClass[];
+    sound?: string;
 }
 
-export function getItemIcon(type: ItemType): number {
-    return ITEM_ICONS[type];
+// evil internalised configuration that should
+// be in asset management somewhere
+const ITEMS: Record<ItemType, ItemInfo> = {
+    "heal-potion": {
+        icon: 76,
+        sound: "glug"
+    }
+}
+
+export function getItemInfo(type: ItemType): ItemInfo {
+    return ITEMS[type];
 }
 
 export interface Item {
@@ -40,6 +50,16 @@ export function addItemToInvetory(game: GameState, item: Item) {
     }
 }
 
+export function removeItemFromInventory(game: GameState, type: ItemType) {
+    const item = game.items.find(i => i.type === type);
+    if (item) {
+        if (item.count === 1) {
+            game.items.splice(game.items.indexOf(item), 1);
+        } else {
+            item.count--;
+        }
+    }
+}
 const ITEM_IN_CHEST_CHANCE = [
     { type: "heal-potion", chance: 1 }
 ];

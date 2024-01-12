@@ -16,7 +16,7 @@ export interface TileSet {
 
 // a hook back for mouse/touch events
 export interface InputEventListener {
-    mouseDown(x: number, y: number, button: number): void;
+    mouseUp(x: number, y: number, button: number): void;
 }
 
 // register an event listener for mouse/touch events
@@ -31,7 +31,7 @@ document.addEventListener('contextmenu', event => {
 // we're only c
 canvas.addEventListener("mouseup", (event) => {
     resumeAudioOnInput();
-    eventListener?.mouseDown(event.x, event.y, event.button);
+    eventListener?.mouseUp(event.x, event.y, event.button);
 });
 
 export function screenWidth(): number {
@@ -62,7 +62,7 @@ export function drawTile(tiles: TileSet, x: number, y: number, tile: number, wid
 // draw text at the given location 
 export function drawText(x: number, y: number, str: string, size: number, col: string): void {
     ctx.fillStyle = col;
-    ctx.font = "bold " + size + "px serif";
+    ctx.font = "bold " + size + "px \"Fira Sans\", sans-serif";
     ctx.fillText(str, x, y);
 }
 
@@ -77,7 +77,7 @@ export function drawRect(x: number, y: number, width: number, height: number, co
 
 // determine the width of a string when rendered at a given size
 export function stringWidth(text: string, size: number) {
-    ctx.font = "bold " + size + "px serif";
+    ctx.font = "bold " + size + "px \"Fira Sans\", sans-serif";
     return ctx.measureText(text).width;
 }
 
