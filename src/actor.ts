@@ -1,14 +1,9 @@
-import { ItemType } from "./items";
+import { ItemChance } from "./items";
 import { GameState } from "./logic";
 
 export interface MinMax {
     min: number;
     max: number;
-}
-
-export interface ItemChance {
-    chance: number;
-    item: ItemType;
 }
 
 // The definition of a actor type describing its attributes
@@ -23,6 +18,7 @@ export interface ActorDef {
     sprite: number;
     good: boolean;
     ranged: boolean;
+    minLevel?: number;
     goldOnKill?: MinMax;
     loot?: ItemChance[];
 }
@@ -53,6 +49,8 @@ export interface Actor {
     ranged: boolean;
     goldOnKill?: MinMax;
     loot?: ItemChance[];
+    modAttack: number;
+    modDefense: number;
 }
 
 // create a new actor in a specific dungeon with some initial characteristics. This is used for both
@@ -81,7 +79,9 @@ export function createActor(game: GameState, def: ActorDef, dungeonId: number, x
         facingRight: true,
         ranged: def.ranged,
         goldOnKill: def.goldOnKill,
-        loot: def.loot
+        loot: def.loot,
+        modAttack: 0,
+        modDefense: 0,
     };
 }
 

@@ -1,6 +1,7 @@
 import { Actor, ActorDef, createActor } from "./actor";
 import { Point, getDungeonById, getRoomAt } from "./dungeon";
 import { Item, createItem } from "./items";
+import { errorLog } from "./log";
 import { GameState } from "./logic";
 
 // the list of monsters that can appear in the game
@@ -15,21 +16,170 @@ const MONSTER_DEFS: Record<string, ActorDef> = {
         sprite: 8,
         good: false,
         ranged: false,
+        minLevel: 1,
         goldOnKill: {
             min: 1,
             max: 2
         },
         loot: [
-            { item: "heal-potion", chance: 1 }
+            { type: "heal-potion", chance: 0.05, minLevel: 0 }
         ]
+    },
+    "wolf": {
+        name: "Wolf",
+        health: 1,
+        attack: 1,
+        defense: 2,
+        magic: 0,
+        moves: 6,
+        sprite: 9,
+        good: false,
+        ranged: false,
+        minLevel: 1,
+        goldOnKill: {
+            min: 1,
+            max: 2
+        },
+        loot: [
+            { type: "heal-potion", chance: 0.05, minLevel: 0 }
+        ]
+    },
+    "bear": {
+        name: "Bear",
+        health: 1,
+        attack: 2,
+        defense: 2,
+        magic: 0,
+        moves: 6,
+        sprite: 12,
+        good: false,
+        ranged: false,
+        minLevel: 2,
+        goldOnKill: {
+            min: 2,
+            max: 3
+        },
+        loot: [
+            { type: "heal-potion", chance: 0.05, minLevel: 0 }
+        ]
+    },
+    "skeleton": {
+        name: "Skeleton",
+        health: 2,
+        attack: 2,
+        defense: 3,
+        magic: 0,
+        moves: 6,
+        sprite: 10,
+        good: false,
+        ranged: false,
+        minLevel: 3,
+        goldOnKill: {
+            min: 2,
+            max: 5
+        },
+        loot: [
+            { type: "mana-potion", chance: 0.05, minLevel: 0 }
+        ]
+    },
+    "ghost": {
+        name: "Ghost",
+        health: 2,
+        attack: 2,
+        defense: 2,
+        magic: 0,
+        moves: 6,
+        sprite: 13,
+        good: false,
+        ranged: false,
+        minLevel: 4,
+        goldOnKill: {
+            min: 2,
+            max: 5
+        },
+        loot: [
+            { type: "mana-potion", chance: 0.05, minLevel: 0 }
+        ]
+    },
+    "bat": {
+        name: "Bat",
+        health: 2,
+        attack: 2,
+        defense: 1,
+        magic: 0,
+        moves: 8,
+        sprite: 14,
+        good: false,
+        ranged: false,
+        minLevel: 6,
+        goldOnKill: {
+            min: 2,
+            max: 5
+        },
+        loot: [
+        ]
+    },
+    "vampire": {
+        name: "Vampire",
+        health: 2,
+        attack: 3,
+        defense: 3,
+        magic: 0,
+        moves: 6,
+        sprite: 11,
+        good: false,
+        ranged: false,
+        minLevel: 8,
+        goldOnKill: {
+            min: 2,
+            max: 5
+        },
+        loot: [
+            { type: "mana-potion", chance: 0.05, minLevel: 0 }
+        ]
+    },
+    "beholder": {
+        name: "Beholder",
+        health: 4,
+        attack: 4,
+        defense: 3,
+        magic: 0,
+        moves: 7,
+        sprite: 15,
+        good: false,
+        ranged: false,
+        minLevel: 10,
+        goldOnKill: {
+            min: 2,
+            max: 5
+        },
+        loot: [
+            { type: "mana-potion", chance: 0.05, minLevel: 0 }
+        ]
+    },
+}
+
+export function getRandomMonster(level: number): string {
+    const possible: string[] = [];
+    for (const defId in MONSTER_DEFS) {
+        const def = MONSTER_DEFS[defId];
+
+        if (def.minLevel !== undefined && level >= def.minLevel) {
+            possible.push(defId)
+        }
     }
+
+    return possible[Math.floor(Math.random() * possible.length)];
 }
 
 export function createMonsterItemLoot(game: GameState, actor: Actor): Item | undefined {
     if (actor.loot) {
         for (const loot of actor.loot) {
-            if (Math.random() < loot.chance) {
-                return createItem(game, loot.item);
+            const dungeon = getDungeonById(game, actor.dungeonId);
+            if (dungeon && dungeon.level >= loot.minLevel) {
+                if (Math.random() < loot.chance) {
+                    return createItem(game, loot.type);
+                }
             }
         }
     }
@@ -40,6 +190,9 @@ export function createMonsterItemLoot(game: GameState, actor: Actor): Item | und
 export function createMonster(game: GameState, type: string, dungeonId: number, x: number, y: number): Actor {
     const def = MONSTER_DEFS[type];
 
+    if (!def) {
+        errorLog("Monster type: " + type + " not found");
+    }
     return createActor(game, def, dungeonId, x, y);
 }
 

@@ -1,4 +1,5 @@
-import { ActorDef } from "./actor";
+import { Actor, ActorDef } from "./actor";
+import { GameState } from "./logic";
 
 export type PlayerClass = "dwarf" | "witch" | "elf" | "knight";
 
@@ -61,3 +62,12 @@ export interface PlayerInfo {
   dungeonId: number;
 }
 
+export function findActiveHero(game: GameState): Actor | undefined {
+    for (const dungeon of game.dungeons) {
+        const hero = dungeon.actors.find(a => a.good);
+        if (hero) {
+            return hero;
+        }
+    }
+    return undefined;
+}

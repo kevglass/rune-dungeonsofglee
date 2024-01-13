@@ -1,10 +1,10 @@
 import type { OnChangeAction, OnChangeEvent, PlayerId, Players, RuneClient } from "rune-games-sdk/multiplayer"
-import { PLAYER_CLASS_DEFS, PlayerClass, PlayerInfo } from "./player";
+import { PLAYER_CLASS_DEFS, PlayerClass, PlayerInfo, findActiveHero } from "./player";
 import { Actor, copyActor, createActor } from "./actor";
 import { blocked, calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getChestAt, getDungeonById, getRoomAt, Point, Room } from "./dungeon";
 import { createMonsterItemLoot, distanceToHero, findActiveMonsters, getAdjacentHero, standingNextToHero } from "./monsters";
 import { debugLog, errorLog } from "./log";
-import { Item, ItemType, addItemToInvetory as addItemToInventory, createItem, removeItemFromInventory } from "./items";
+import { Item, ItemType, addItemToInventory as addItemToInventory, createItem, removeItemFromInventory, useItem } from "./items";
 
 export const STEP_TIME = 1000 / 3;
 
@@ -145,7 +145,7 @@ export function nextTurn(game: GameState): void {
 }
 
 // Semantic wrapper to help with readability 
-function addGameEvent(game: GameState, actorId: number, event: GameEventType, delay: number, x = 0, y = 0, value = 0, item?: ItemType) {
+export function addGameEvent(game: GameState, actorId: number, event: GameEventType, delay: number, x = 0, y = 0, value = 0, item?: ItemType) {
   game.events.push({
     type: event,
     actorId,
@@ -160,7 +160,7 @@ function rollCombat(attacker: Actor, target?: Actor, multiplier?: number): numbe
     return 0;
   }
 
-  let attack = attacker.attack;
+  let attack = attacker.attack + attacker.modAttack;
   // if we're a ranged fighter and we're adjacent then half the attack
   if (Math.abs(attacker.x - target.x) + Math.abs(attacker.y - target.y) === 1) {
     attack = Math.ceil(attack / 2);
@@ -177,8 +177,9 @@ function rollCombat(attacker: Actor, target?: Actor, multiplier?: number): numbe
       skulls++;
     }
   }
+
   let shields = 0;
-  for (let i = 0; i < target.defense; i++) {
+  for (let i = 0; i < target.defense + target.modDefense; i++) {
     if ((Math.random() * 6) < 2 && target.good) {
       shields++;
     }
@@ -199,6 +200,10 @@ function kill(game: GameState, dungeon: Dungeon, target: Actor, extraDelay = 0):
 
   if (target.good) {
     game.deadHeroes.push(target);
+
+    if (!findActiveHero(game)) {
+      Rune.gameOver();
+    }
   } else {
     // do the loot!
     const item = createMonsterItemLoot(game, target);
@@ -357,6 +362,7 @@ function applyCurrentActivity(game: GameState): boolean {
           }
           calcMoves(game, actor);
         }
+
         // if this was the last step then recalculate the available moves
         // for the current turn holder.
         if (nextStep && nextStep.x === game.currentActivity.tx && nextStep.y === game.currentActivity.ty) {
@@ -436,23 +442,6 @@ function applyCurrentActivity(game: GameState): boolean {
   return false;
 }
 
-// use an item from the inventory
-function useItem(game: GameState, playerId: PlayerId, item: Item): void {
-  const playerInfo = game.playerInfo[playerId];
-  if (playerInfo) {
-    const actor = getActorById(game, playerInfo.dungeonId, playerInfo.actorId);
-    if (actor) {
-      if (item.type === 'heal-potion') {
-        if (actor.health < actor.maxHealth) {
-          actor.health++;
-          removeItemFromInventory(game, item.type);
-          addGameEvent(game, actor.id, "useItem", 0, 0, 0, 0, item.type);
-        }
-      }
-    }
-  }
-}
-
 // play the evil characters
 function takeEvilTurn(game: GameState): void {
   // if theres no heroes left then don't do anything 
@@ -492,12 +481,18 @@ function takeEvilTurn(game: GameState): void {
       } else {
         const bestMove = game.possibleMoves.sort((a, b) => distanceToHero(game, monster.dungeonId, a) - distanceToHero(game, monster.dungeonId, b))[0];
 
-        game.currentActivity = {
-          dungeonId: monster.dungeonId,
-          actorId: monster.id,
-          tx: bestMove.x,
-          ty: bestMove.y,
-          startTime: Rune.gameTime()
+        // no point moving if we don't get closer to the heroes
+        if (distanceToHero(game, monster.dungeonId, bestMove) < distanceToHero(game, monster.dungeonId, monster)) {
+          game.currentActivity = {
+            dungeonId: monster.dungeonId,
+            actorId: monster.id,
+            tx: bestMove.x,
+            ty: bestMove.y,
+            startTime: Rune.gameTime()
+          }
+        } else {
+          monster.moves = 0;
+          monster.actions = 0;
         }
       }
     } else {

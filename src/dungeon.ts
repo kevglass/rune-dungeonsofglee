@@ -2,9 +2,9 @@ import { Actor } from "./actor";
 import { ItemType, rollChestItem } from "./items";
 import { errorLog } from "./log";
 import { GameMove, GameState } from "./logic";
-import { createMonster } from "./monsters";
+import { createMonster, getRandomMonster } from "./monsters";
 
-export const CHANCE_OF_CHEST = 0.2;
+export const CHANCE_OF_CHEST = 0.3;
 
 // A wrapper for a single location in a dungeon
 export interface Point {
@@ -173,11 +173,23 @@ export function generateDungeon(game: GameState, level: number): Dungeon {
             if (newRoom.depth > lastRoom.depth) {
                 lastRoom = newRoom;
             }
-            // add a random monster to the room
-            const mx = Math.floor(Math.random() * (newRoom.width - 2)) + 1 + newRoom.x;
-            const my = Math.floor(Math.random() * (newRoom.height - 2)) + 1 + newRoom.y;
 
-            dungeon.actors.push(createMonster(game, "goblin", dungeon.id, mx, my))
+            const targetDifficultyLevel = (2 + level) * 2;
+            let totalDifficultInRoom = 0;
+            for (let i=0;i<4;i++) {
+                // add a random monster to the room
+                const mx = Math.floor(Math.random() * (newRoom.width - 2)) + 1 + newRoom.x;
+                const my = Math.floor(Math.random() * (newRoom.height - 2)) + 1 + newRoom.y;
+
+                if (!getActorAt(dungeon, mx, my)) {
+                    const randomMonsterType = getRandomMonster(dungeon.level);
+                    const monster = createMonster(game, randomMonsterType, dungeon.id, mx, my);
+                    if (totalDifficultInRoom + monster.attack + monster.defense <= targetDifficultyLevel) {
+                        totalDifficultInRoom += monster.attack + monster.defense;
+                        dungeon.actors.push(monster);
+                    }
+                }
+            }
         }
     }
 
@@ -208,7 +220,7 @@ export function generateDungeon(game: GameState, level: number): Dungeon {
                 dungeon.chests.push({
                     x: cx,
                     y: cy,
-                    item: rollChestItem(),
+                    item: rollChestItem(dungeon.level),
                     open: false
                 })
             }

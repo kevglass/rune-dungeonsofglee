@@ -13,6 +13,7 @@ import sfxMagicUrl from "./assets/fireball.mp3";
 import sfxHealUrl from "./assets/heal.mp3";
 import sfxClickUrl from "./assets/click.mp3";
 import sfxGlugUrl from "./assets/glug.mp3";
+import sfxAbilityUrl from "./assets/ability.mp3";
 
 import { GameEvent, GameState, GameUpdate, STEP_TIME, isTargetedMove } from "./logic";
 import { Actor } from "./actor";
@@ -182,6 +183,7 @@ export class DungeonsOfGlee implements InputEventListener {
         this.sfxStairs = loadSound(sfxStepsUrl);
 
         this.sfxItems['glug'] = loadSound(sfxGlugUrl);
+        this.sfxItems['weapon'] = loadSound(sfxAbilityUrl);
 
         this.logo = new Image();
         this.logo.src = logoUrl;
@@ -265,11 +267,11 @@ export class DungeonsOfGlee implements InputEventListener {
                 // do the loot UI mouse controls
                 const tx = Math.floor((x - (Math.floor(screenWidth() / 2) - 134)) / 68);
                 const ty = Math.floor((y - 100) / 68);
-                if (tx >= 0 && ty >= 0 && tx < 4 && ty < 4) {
+                if (tx >= 0 && ty >= 0 && tx < 4 && ty < 3) {
                     this.selectedItemIndex = tx + (ty * 4);
                 }
 
-                if (this.game) {
+                if (this.game && this.myTurn) {
                     // clicking the use area
                     if (intersects(x, y, Math.floor(screenWidth() / 2) - 84, 380, 172, 30)) {
                         const selectedItem = this.game.items[this.selectedItemIndex];
@@ -652,9 +654,20 @@ export class DungeonsOfGlee implements InputEventListener {
                         drawRect(cx + 10 + 30 + (i * 20), screenHeight() - 60, 15, 15, "black");
                     }
                     drawTile(this.tiles, cx + 20, screenHeight() - 38, 45, 28, 28);
-                    drawText(cx + 50, screenHeight() - 16, "" + this.myActor.attack, 24, "white");
+                    drawText(cx + 50, screenHeight() - 18, "" + this.myActor.attack, 24, "white");
+                    if (this.myActor.modAttack) {
+                        fillCircle(cx + 73, screenHeight() - 17, 12, GREEN);
+                        const str = "+" + this.myActor.modAttack;
+                        drawText(cx + 72 - Math.floor(stringWidth(str, 14) / 2), screenHeight() - 12, str, 14, "white");
+                    }
+
                     drawTile(this.tiles, cx + 90, screenHeight() - 38, 69, 28, 28);
                     drawText(cx + 120, screenHeight() - 16, "" + this.myActor.defense, 24, "white");
+                    if (this.myActor.modDefense) {
+                        fillCircle(cx + 143, screenHeight() - 17, 12, GREEN);
+                        const str = "+" + this.myActor.modDefense;
+                        drawText(cx + 142 - Math.floor(stringWidth(str, 14) / 2), screenHeight() - 12, str, 14, "white");
+                    }
                 } else {
                     errorLog("No local actor found");
                 }
@@ -712,7 +725,7 @@ export class DungeonsOfGlee implements InputEventListener {
                     pushState();
                     translate(Math.floor(screenWidth() / 2) - 134, 100);
                     fillRect(0, 0, 272, 272 + 50, "rgb(40,40,40)");
-                    for (let y = 0; y < 4; y++) {
+                    for (let y = 0; y < 3; y++) {
                         for (let x = 0; x < 4; x++) {
                             fillRect(2 + (x * 68), 2 + (y * 68), 64, 64, "rgba(0,0,0,0.5)");
                             const index = x + (y * 4);
@@ -731,16 +744,24 @@ export class DungeonsOfGlee implements InputEventListener {
                     popState();
 
                     const selectedItem = this.game.items[this.selectedItemIndex];
-                    if (selectedItem && this.myPlayerInfo) {
-                        const info: ItemInfo = getItemInfo(selectedItem.type);
-                        if (info.onlyUsedBy && !info.onlyUsedBy.includes(this.myPlayerInfo.type)) {
-                            drawText(Math.floor(screenWidth() / 2) - 50, 402, "ONLY", 20, "white");
-                            for (const type of info.onlyUsedBy) {
-                                drawTile(this.tiles, Math.floor(screenWidth() / 2) + 10, 372, PLAYER_CLASS_DEFS[type].sprite, 48, 48);
+                    if (selectedItem) {
+                        centerText(getItemInfo(selectedItem.type).name, 20, 335, "white");
+                        centerText("(" + getItemInfo(selectedItem.type).desc + ")", 14, 360, "white");
+                    }
+                    if (!this.myTurn) {
+                        centerText("NOT YOUR TURN", 20, 402, "white");
+                    } else {
+                        if (selectedItem && this.myPlayerInfo) {
+                            const info: ItemInfo = getItemInfo(selectedItem.type);
+                            if (info.onlyUsedBy && !info.onlyUsedBy.includes(this.myPlayerInfo.type)) {
+                                drawText(Math.floor(screenWidth() / 2) - 50, 402, "ONLY", 20, "white");
+                                for (const type of info.onlyUsedBy) {
+                                    drawTile(this.tiles, Math.floor(screenWidth() / 2) + 10, 372, PLAYER_CLASS_DEFS[type].sprite, 48, 48);
+                                }
+                            } else {
+                                fillRect(Math.floor(screenWidth() / 2) - 84, 380, 172, 30, "rgb(60,60,60)")
+                                centerText("USE", 20, 402, "white");
                             }
-                        } else {
-                            fillRect(Math.floor(screenWidth() / 2) - 84, 380, 172, 30, "rgb(60,60,60)")
-                            centerText("USE", 20, 402, "white");
                         }
                     }
                 }
