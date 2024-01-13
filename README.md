@@ -1,6 +1,6 @@
 # Dungeons of Glee
 
-![image](https://github.com/kevglass/dungeonsofglee/assets/3787210/e6603468-7143-430c-a266-55f9adfb01cc)
+![image](https://github.com/kevglass/dungeonsofglee/assets/3787210/1b23592d-40c5-4560-ac5f-1387782eaa78)
 
 This is a rough hack up making using the Rune.ai SDK (https://rune.ai). I wanted to see what its all about and ended up recreating one of my dungeon
 games. 
