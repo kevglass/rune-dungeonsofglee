@@ -211,7 +211,7 @@ function kill(game: GameState, dungeon: Dungeon, target: Actor, extraDelay = 0):
       addGameEvent(game, -1, "itemLoot", 400 + extraDelay, target.x, target.y, 0, item.type);
     } else if (target.goldOnKill) {
       const lootGold = Math.floor(Math.random() * (target.goldOnKill.max - target.goldOnKill.min)) + target.goldOnKill.min;
-    
+
       game.gold += lootGold;
       addGameEvent(game, -1, "goldLoot", 400 + extraDelay, target.x, target.y, lootGold);
     }
@@ -400,8 +400,8 @@ function applyCurrentActivity(game: GameState): boolean {
                 // and update the player record if there is any
                 if (possibleStarts.length > 0) {
                   const start: Point = possibleStarts[Math.floor(Math.random() * possibleStarts.length)];
-                  
-                  dungeon.actors.splice(dungeon.actors.indexOf(actor), 1); 
+
+                  dungeon.actors.splice(dungeon.actors.indexOf(actor), 1);
                   // for some reason Rune doesn't like me trying to reuse the actor object
                   // here so we'll take a copy instead
                   const newActor: Actor = copyActor(actor);
@@ -534,7 +534,7 @@ Rune.initLogic({
       events: [],
     }
 
-    initialState.dungeons.push(generateDungeon(initialState, 20));
+    initialState.dungeons.push(generateDungeon(initialState, 1));
     return initialState;
   },
   actions: {
@@ -651,7 +651,7 @@ Rune.initLogic({
       context.game.playerOrder.splice(context.game.playerOrder.indexOf(context.playerId), 1);
       delete context.game.playerInfo[context.playerId];
     },
-    useItem: ({id}, context) => {
+    useItem: ({ id }, context) => {
       const item = context.game.items.find(item => item.id === id);
       if (item) {
         // found item to use
@@ -665,6 +665,15 @@ Rune.initLogic({
     // frame to a list that the client will process since it's all guaranteed delivery of
     // state changes this will work
     context.game.events = [];
+
+    // clean up old dungeons
+    if (context.game.dungeons.length > 2) {
+      for (const dungeon of [...context.game.dungeons]) {
+        if (!dungeon.actors.find(a => a.good)) {
+          context.game.dungeons.splice(context.game.dungeons.indexOf(dungeon), 1);
+        }
+      }
+    }
 
     // we're running the game at 15 FPS because we want the smooth gameTime() tick, however
     // the logic itself doesn't need to run that quickly (we're only taking a logic step)
