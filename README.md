@@ -24,3 +24,9 @@ Hope this can be of help to someone at some point.
 * Elf - Has ranged combat with bow, damage done in melee is reduced.
 * Witch - Glass cannon, low attack and defense, but able to cast fireball and heal other characters.
 
+## Credits
+
+* Code - Me (cokeandcode)
+* Sounds - Various CC0 sources
+* Art - Doodle Rogue with some minor mods - https://chr15m.itch.io/doodle-rogue-tileset
+* Multiplayer Platform and Framework - https://rune.ai 
