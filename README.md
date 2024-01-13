@@ -1,5 +1,7 @@
 # Dungeons of Glee
 
+![image](https://github.com/kevglass/dungeonsofglee/assets/3787210/1b23592d-40c5-4560-ac5f-1387782eaa78)
+
 This is a rough hack up making using the Rune.ai SDK (https://rune.ai). I wanted to see what its all about and ended up recreating one of my dungeon
 games. 
 
@@ -22,3 +24,9 @@ Hope this can be of help to someone at some point.
 * Elf - Has ranged combat with bow, damage done in melee is reduced.
 * Witch - Glass cannon, low attack and defense, but able to cast fireball and heal other characters.
 
+## Credits
+
+* Code - Me (cokeandcode)
+* Sounds - Various CC0 sources
+* Art - Doodle Rogue with some minor mods - https://chr15m.itch.io/doodle-rogue-tileset
+* Multiplayer Platform and Framework - https://rune.ai 
