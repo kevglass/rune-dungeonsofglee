@@ -4,7 +4,7 @@ import { Actor, copyActor, createActor } from "./actor";
 import { blocked, calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getChestAt, getDungeonById, getRoomAt, Point, Room } from "./dungeon";
 import { createMonsterItemLoot, distanceToHero, findActiveMonsters, getAdjacentHero, standingNextToHero } from "./monsters";
 import { debugLog, errorLog } from "./log";
-import { Item, ItemType, addItemToInventory as addItemToInventory, createItem, removeItemFromInventory, useItem } from "./items";
+import { Item, ItemType, addItemToInventory as addItemToInventory, createItem, useItem } from "./items";
 
 export const STEP_TIME = 1000 / 3;
 
@@ -40,6 +40,7 @@ export interface GameState {
   currentActivity?: Activity;
   lastUpdate: number;
   events: GameEvent[];
+  evilTurnMax: number;
 }
 
 // an activity taking a place - this is a move
@@ -111,6 +112,7 @@ export function nextTurn(game: GameState): void {
   if (index >= game.playerOrder.length) {
     // its now evils turn 
     game.whoseTurn = "evil";
+    game.evilTurnMax = 100;
   } else {
     game.whoseTurn = game.playerOrder[index];
   }
@@ -180,10 +182,7 @@ function rollCombat(attacker: Actor, target?: Actor, multiplier?: number): numbe
 
   let shields = 0;
   for (let i = 0; i < target.defense + target.modDefense; i++) {
-    if ((Math.random() * 6) < 2 && target.good) {
-      shields++;
-    }
-    if ((Math.random() * 6) < 1 && !target.good) {
+    if ((Math.random() * 6) < 1) {
       shields++;
     }
   }
@@ -444,6 +443,13 @@ function applyCurrentActivity(game: GameState): boolean {
 
 // play the evil characters
 function takeEvilTurn(game: GameState): void {
+  // guard condition to prevent locking in any case
+  game.evilTurnMax--;
+  if (game.evilTurnMax <= 0) {
+    nextTurn(game);
+    return;
+  }
+
   // if theres no heroes left then don't do anything 
   const heroes: Actor[] = [];
   game.dungeons.forEach(d => heroes.push(...d.actors.filter(a => a.good)));
@@ -515,6 +521,7 @@ Rune.initLogic({
     // and move on
     const initialState: GameState = {
       gold: 0,
+      evilTurnMax: 0,
       items: [],
       nextId: 1,
       playerOrder: [],
@@ -527,7 +534,7 @@ Rune.initLogic({
       events: [],
     }
 
-    initialState.dungeons.push(generateDungeon(initialState, 1));
+    initialState.dungeons.push(generateDungeon(initialState, 20));
     return initialState;
   },
   actions: {
