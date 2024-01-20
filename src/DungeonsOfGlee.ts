@@ -567,6 +567,9 @@ export class DungeonsOfGlee implements InputEventListener {
             if (this.myActor) {
                 let p = 0;
                 for (const playerId of this.game.playerOrder) {
+                    if (playerId === "evil") {
+                        continue;
+                    }
                     fillRect((p * 68), 0, 64, 64, "rgb(40,40,40)");
                     if (this.game.playerInfo[playerId]) {
                         const actor = getActorById(this.game, this.game.playerInfo[playerId].dungeonId, this.game.playerInfo[playerId].actorId);
@@ -594,6 +597,11 @@ export class DungeonsOfGlee implements InputEventListener {
                     fillRect(0, 66, screenWidth(), 27, "rgba(0.4,0.4,0.4,0.5)");
                     drawText(10, 87, "LEVEL " + dungeon.level, 20, "white");
 
+                    if (this.devMode) {
+                        drawText(10, 107, this.game.playerOrder.join(","), 20, "white");
+                        drawText(10, 127, "Current: " + this.game.whoseTurn, 20, "white");
+                    }
+
                     drawTile(this.tiles, screenWidth() - 50, 47, 39);
                     // dirty hack - if there is gold flying don't show it as part of the gold in the game
                     // state. We don't want the gold to appear in our total until we've completed our turn
@@ -613,7 +621,7 @@ export class DungeonsOfGlee implements InputEventListener {
 
                 if (this.isDead) {
                     fillRect(0, 100, screenWidth(), 27, "#444");
-                    centerText("YOU HAVE DIED", 20, 104, "white");
+                    centerText("YOU HAVE DIED", 20, 122, "white");
                 }
                 if (this.game.whoseTurn === this.localPlayerId) {
                     fillRect(0, screenHeight() - 100, screenWidth(), 27, "#8ac34d");

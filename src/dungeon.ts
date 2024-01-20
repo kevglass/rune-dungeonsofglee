@@ -176,7 +176,7 @@ export function generateDungeon(game: GameState, level: number): Dungeon {
 
             const targetDifficultyLevel = (2 + level) * 2;
             let totalDifficultInRoom = 0;
-            for (let i=0;i<4;i++) {
+            for (let i = 0; i < 4; i++) {
                 // add a random monster to the room
                 const mx = Math.floor(Math.random() * (newRoom.width - 2)) + 1 + newRoom.x;
                 const my = Math.floor(Math.random() * (newRoom.height - 2)) + 1 + newRoom.y;
@@ -216,13 +216,15 @@ export function generateDungeon(game: GameState, level: number): Dungeon {
             // we set the room to discovered here
             // so we can use the blocked check safely.
             room.discovered = true;
-            if (!blocked(dungeon, undefined, cx, cy)) {
-                dungeon.chests.push({
-                    x: cx,
-                    y: cy,
-                    item: rollChestItem(dungeon.level),
-                    open: false
-                })
+            if (!getActorAt(dungeon, cx, cy)) {
+                if (!blocked(dungeon, undefined, cx, cy)) {
+                    dungeon.chests.push({
+                        x: cx,
+                        y: cy,
+                        item: rollChestItem(dungeon.level),
+                        open: false
+                    })
+                }
             }
             room.discovered = false;
         }
@@ -267,7 +269,7 @@ export function blocked(dungeon: Dungeon, actor: Actor | undefined, x: number, y
     if (chest) {
         return true;
     }
-    
+
     // if theres no room at a location then we're in the void - this 
     // blocks
     const room = getRoomAt(dungeon, x, y);

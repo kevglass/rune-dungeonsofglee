@@ -103,19 +103,13 @@ export type GameUpdate = {
 // calculating the new moves available for the turn.
 export function nextTurn(game: GameState): void {
   let index = game.playerOrder.indexOf(game.whoseTurn);
-  if (index === -1) {
+  if (index >= game.playerOrder.length - 1) {
     // it was evils turns, start a zero again
     index = 0;
   } else {
     index++;
   }
-  if (index >= game.playerOrder.length) {
-    // its now evils turn 
-    game.whoseTurn = "evil";
-    game.evilTurnMax = 100;
-  } else {
-    game.whoseTurn = game.playerOrder[index];
-  }
+  game.whoseTurn = game.playerOrder[index];
 
   if (game.whoseTurn !== "evil") {
     const newActor = getActorById(game, game.playerInfo[game.whoseTurn].dungeonId, game.playerInfo[game.whoseTurn].actorId);
@@ -135,6 +129,7 @@ export function nextTurn(game: GameState): void {
       calcMoves(game, newActor);
     }
   } else {
+    game.evilTurnMax = 100;
     for (const dungeon of game.dungeons) {
       dungeon.actors.filter(a => !a.good).forEach(actor => {
         actor.moves = actor.maxMoves;
@@ -142,7 +137,6 @@ export function nextTurn(game: GameState): void {
       });
     }
   }
-
   addGameEvent(game, 0, "turnChange", 0);
 }
 
@@ -443,17 +437,17 @@ function applyCurrentActivity(game: GameState): boolean {
 
 // play the evil characters
 function takeEvilTurn(game: GameState): void {
-  // guard condition to prevent locking in any case
-  game.evilTurnMax--;
-  if (game.evilTurnMax <= 0) {
-    nextTurn(game);
-    return;
-  }
-
   // if theres no heroes left then don't do anything 
   const heroes: Actor[] = [];
   game.dungeons.forEach(d => heroes.push(...d.actors.filter(a => a.good)));
   if (heroes.length === 0) {
+    return;
+  }
+
+  // guard condition to prevent locking in any case
+  game.evilTurnMax--;
+  if (game.evilTurnMax <= 0) {
+    nextTurn(game);
     return;
   }
 
@@ -524,7 +518,7 @@ Rune.initLogic({
       evilTurnMax: 0,
       items: [],
       nextId: 1,
-      playerOrder: [],
+      playerOrder: ["evil"],
       deadHeroes: [],
       whoseTurn: allPlayerIds[0],
       playerInfo: {},
@@ -611,7 +605,7 @@ Rune.initLogic({
         }
       }
       // add the player to the player order so they can take a turn
-      context.game.playerOrder.push(context.playerId);
+      context.game.playerOrder.splice(context.game.playerOrder.length - 1, 0, context.playerId);
 
       // evaluate whose turn it is, because when we add a new player
       // it might immediately be their turn or it might change
