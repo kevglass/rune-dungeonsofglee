@@ -176,7 +176,7 @@ function rollCombat(attacker: Actor, target?: Actor, multiplier?: number): numbe
 
   let shields = 0;
   for (let i = 0; i < target.defense + target.modDefense; i++) {
-    if ((Math.random() * 6) < 1) {
+    if ((Math.random() * 6) < (target.good ? 2 : 1)) {
       shields++;
     }
   }
