@@ -222,6 +222,13 @@ export class DungeonsOfGlee implements InputEventListener {
             return getActorById(this.game, this.myPlayerInfo.dungeonId, this.myPlayerInfo.actorId);
         }
 
+        if (this.game) {
+            const playerInfo = this.game.playerInfo[this.game.whoseTurn];
+            if (playerInfo) {
+                return getActorById(this.game, playerInfo.dungeonId, playerInfo.actorId);
+            }
+        }
+
         return undefined;
     }
 
@@ -522,7 +529,7 @@ export class DungeonsOfGlee implements InputEventListener {
             this.anim++;
             // if we don't currently have a player class then show
             // the class selection screen
-            if (!this.localPlayerClass) {
+            if (!this.localPlayerClass && this.localPlayerId) {
                 drawImage(this.logo, Math.floor((screenWidth() / 2) - (this.logo.width / 2)), 10, this.logo.width, this.logo.height);
                 drawImage(this.cokeandcode, Math.floor((screenWidth() / 2) - (this.cokeandcode.width / 2)), screenHeight() - this.cokeandcode.height - 20, this.cokeandcode.width, this.cokeandcode.height);
                 centerText("Select Your Hero", 20, 160, "white");

@@ -534,6 +534,17 @@ export function findNextStep(game: GameState, mover: Actor, x: number, y: number
     }
 }
 
+export function findActor(game: GameState, id: number): Actor | undefined {
+    for (const dungeon of game.dungeons) {
+        const actor = dungeon.actors.find(a => a.id === id);
+        if (actor) {
+            return actor;
+        }
+    }
+
+    return undefined;
+}
+
 // Get a specific actor by its ID
 export function getActorById(game: GameState, dungeonId: number, id: number): Actor | undefined {
     const deadActor = game.deadHeroes.find(a => a.id === id);
