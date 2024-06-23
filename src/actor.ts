@@ -55,7 +55,7 @@ export interface Actor {
 
 // create a new actor in a specific dungeon with some initial characteristics. This is used for both
 // players and monsters.
-export function createActor(game: GameState, def: ActorDef, dungeonId: number, x: number, y: number): Actor {
+export function createActor(playerId: string, game: GameState, def: ActorDef, dungeonId: number, x: number, y: number): Actor {
     return {
         id: game.nextId++,
         x: x,
@@ -64,7 +64,7 @@ export function createActor(game: GameState, def: ActorDef, dungeonId: number, x
         ly: y,
         lt: 0,
         sprite: def.sprite,
-        playerId: "",
+        playerId: playerId,
         good: def.good,
         health: def.health,
         maxHealth: def.health,

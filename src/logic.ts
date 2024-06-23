@@ -1,4 +1,4 @@
-import type { OnChangeAction, OnChangeEvent, PlayerId, Players, RuneClient } from "rune-games-sdk/multiplayer"
+import type { PlayerId, Players, RuneClient } from "rune-games-sdk/multiplayer"
 import { PLAYER_CLASS_DEFS, PlayerClass, PlayerInfo, findActiveHero } from "./player";
 import { Actor, copyActor, createActor } from "./actor";
 import { blocked, calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getChestAt, getDungeonById, getRoomAt, Point, Room } from "./dungeon";
@@ -28,6 +28,7 @@ export interface GameEvent {
 }
 
 export interface GameState {
+  persisted?: Record<PlayerId, Persisted>;
   gold: number;
   items: Item[];
   nextId: number;
@@ -41,6 +42,12 @@ export interface GameState {
   lastUpdate: number;
   events: GameEvent[];
   evilTurnMax: number;
+
+  // save game stuff
+  whoseSave?: string;
+  saveDesc?: string;
+  time: number;
+  saveLevel: number;
 }
 
 // an activity taking a place - this is a move
@@ -65,11 +72,27 @@ export interface GameMove {
   depth: number;
 }
 
+export interface SaveGame {
+  savedAt: number;
+  items: Item[];
+  level: number;
+  desc: string;
+}
+
+export interface Persisted {
+  saves: SaveGame[];
+}
+
 // The collection of actions the players can take to effect the game
-type GameActions = {
+export type GameActions = {
+  setTime: (params: { time: number }) => void;
+
   // The player selected a character type to play. We then add them to the 
   // world
-  setPlayerType: (params: { type: PlayerClass }) => void;
+  setPlayerType: (params: { name: string, type: PlayerClass }) => void;
+
+  selectSave: (params: { saveIndex: number }) => void;
+
   // The player selected an action/move on a particular tile. Apply
   // it and make it tick over
   makeMove: (params: { x: number, y: number }) => void;
@@ -83,21 +106,125 @@ type GameActions = {
 }
 
 declare global {
-  const Rune: RuneClient<GameState, GameActions>;
+  const Rune: RuneClient<GameState, GameActions, Persisted>;
 }
 
-// Quick type so I can pass the complex object that is the 
-// Rune onChange blob around without ugliness. 
-export type GameUpdate = {
-  game: GameState;
-  action?: OnChangeAction<GameActions>;
-  event?: OnChangeEvent;
-  yourPlayerId: PlayerId | undefined;
-  players: Players;
-  rollbacks: OnChangeAction<GameActions>[];
-  previousGame: GameState;
-  futureGame?: GameState;
-};
+function enterDungeonAt(game: GameState, level: number) {
+  game.dungeons.push(generateDungeon(game, level));
+
+  for (const pid of game.playerOrder) {
+    const info = game.playerInfo[pid];
+    if (info) {
+      joinGame(game, pid, info.type, info.name);
+    }
+  }
+}
+
+function joinGame(game: GameState, playerId: PlayerId, type: PlayerClass, name: string): void {
+  // find a start position for our player based on the start rooms
+  const dungeon = game.dungeons[game.dungeons.length - 1];
+  const mainStartRoom = dungeon.rooms.find(r => r.start);
+  if (mainStartRoom) {
+    // consider all the spaces in the start room and if they are
+    // free add them to a potential list of starts
+    const possibleStarts: Point[] = [];
+    const startRooms: Room[] = [];
+
+    // find any heroes in the dungeon already
+    const heroes: Actor[] = [];
+    game.dungeons.forEach(d => heroes.push(...d.actors.filter(a => a.good)));
+
+    // if there aren't any heroes, just use the main start room
+    if (heroes.length === 0) {
+      startRooms.push(mainStartRoom);
+    } else {
+      // otherwise try and place the new hero somewhere near the 
+      // existing ones
+      for (const hero of heroes) {
+        const dungeon = getDungeonById(game, hero.dungeonId);
+        if (dungeon) {
+          const room = getRoomAt(dungeon, hero.x, hero.y);
+          if (room && !startRooms.includes(room)) {
+            startRooms.push(room);
+          }
+        }
+      }
+    }
+
+    // scan through all the potential start rooms looking for an empty space
+    for (const room of startRooms) {
+      for (let x = 1; x < room.width - 1; x++) {
+        for (let y = 1; y < room.height - 1; y++) {
+          if (x === room.width - 2 && y === 1) {
+            continue;
+          }
+          if (!getActorAt(dungeon, room.x + x, room.y + y) && !blocked(dungeon, undefined, room.x + x, room.y + y)) {
+            possibleStarts.push({ x: x + room.x, y: y + room.y });
+          }
+        }
+      }
+    }
+
+    // if we've found somewhere the player can start create their actor based on the
+    // character class they chose and add it to the world. 
+    if (possibleStarts.length > 0) {
+      const start: Point = possibleStarts[Math.floor(Math.random() * possibleStarts.length)];
+      const actor: Actor = createActor(playerId, game, PLAYER_CLASS_DEFS[type], dungeon.id, start.x, start.y);
+      game.playerInfo[playerId] = {
+        dungeonId: dungeon.id,
+        type,
+        actorId: actor.id,
+        name
+      };
+      dungeon.actors.push(actor);
+    } else {
+      errorLog("No Start Positions!");
+    }
+  }
+  // add the player to the player order so they can take a turn
+  if (!game.playerOrder.includes(playerId)) {
+    game.playerOrder.splice(game.playerOrder.length - 1, 0, playerId);
+  }
+
+  // evaluate whose turn it is, because when we add a new player
+  // it might immediately be their turn or it might change
+  // the moves available 
+  const whoseMove = game.playerInfo[game.whoseTurn];
+  if (whoseMove && whoseMove.actorId) {
+    const actor = getActorById(game, dungeon.id, whoseMove.actorId);
+    if (actor) {
+      // calculate all the possible moves from this position
+      calcMoves(game, actor);
+    }
+  }
+}
+
+function saveGame(playerId: string, dungeonIndex: number, game: GameState): void {
+  // check if we're playing some one elses save
+  if (game.whoseSave && game.whoseSave !== playerId) {
+    return;
+  }
+
+  let saveGames = game.persisted?.[playerId]?.saves;
+  if (!saveGames && game.persisted) {
+    saveGames = [];
+    game.persisted[playerId] = { saves: saveGames }
+  }
+
+  if (saveGames) {
+    if (!saveGames[0]) {
+      saveGames[0] = {
+        savedAt: game.time + Rune.gameTime(),
+        level: 0,
+        items: [],
+        desc: Object.keys(game.playerInfo).map(id => game.playerInfo[id]?.name ?? "").join(",")
+      }
+    }
+    saveGames[0].level = dungeonIndex;
+    saveGames[0].items = JSON.parse(JSON.stringify(game.items));
+    saveGames[0].desc = Object.keys(game.playerInfo).map(id => game.playerInfo[id]?.name ?? "").join(",");
+  }
+}
 
 // Move to the next player's or the monster's turn. This includes
 // calculating the new moves available for the turn.
@@ -182,6 +309,57 @@ function rollCombat(attacker: Actor, target?: Actor, multiplier?: number): numbe
   }
 
   return Math.max(0, skulls - shields);
+}
+
+function startDungeon(game: GameState, actor: Actor, nextDungeon: Dungeon, oldDungeon: Dungeon): Actor {
+  const startRoom = nextDungeon.rooms.find(r => r.start);
+
+  // scan through all the potential start rooms looking for an empty space
+  if (startRoom) {
+    const possibleStarts: Point[] = [];
+    for (let x = 1; x < startRoom.width - 1; x++) {
+      for (let y = 1; y < startRoom.height - 1; y++) {
+        if (x === startRoom.width - 2 && y === 1) {
+          continue;
+        }
+        if (!getActorAt(nextDungeon, startRoom.x + x, startRoom.y + y) && !blocked(nextDungeon, undefined, startRoom.x + x, startRoom.y + y)) {
+          possibleStarts.push({ x: x + startRoom.x, y: y + startRoom.y });
+        }
+      }
+    }
+    // if we can find a start location then move the actor
+    // and update the player record if there is any
+    if (possibleStarts.length > 0) {
+      const start: Point = possibleStarts[Math.floor(Math.random() * possibleStarts.length)];
+
+      oldDungeon.actors.splice(oldDungeon.actors.indexOf(actor), 1);
+      // for some reason Rune doesn't like me trying to reuse the actor object
+      // here so we'll take a copy instead
+      const newActor: Actor = copyActor(actor);
+      newActor.dungeonId = nextDungeon.id;
+      newActor.x = start.x;
+      newActor.y = start.y;
+      newActor.lx = start.x;
+      newActor.ly = start.y;
+      newActor.lt = 0;
+      nextDungeon.actors.push(newActor);
+
+      for (const info of Object.values(game.playerInfo)) {
+        if (info.actorId === actor.id) {
+          info.dungeonId = nextDungeon.id;
+        }
+      }
+
+      addGameEvent(game, newActor.id, "stairs", 0, actor.x, actor.y, oldDungeon.id);
+      return newActor;
+    } else {
+      errorLog("No start places in new dungeon");
+    }
+  } else {
+    errorLog("No start room in new dungeon");
+  }
+
+  return actor;
 }
 
 // kill an actor by generating effects and removing them
@@ -366,60 +544,23 @@ function applyCurrentActivity(game: GameState): boolean {
             const sx = room.x + Math.floor(room.width / 2);
             const sy = room.y + Math.floor(room.height / 2);
             if (sx === actor.x && sy === actor.y) {
-              const dungeonIndex = game.dungeons.findIndex(d => d.id === dungeon.id) + 1;
+              const dungeonIndex = dungeon.level + 1;
               // if we're the first one to reach this level, then 
-              // genreate a new dungeon
-              if (dungeonIndex > game.dungeons.length - 1) {
-                game.dungeons.push(generateDungeon(game, dungeon.level + 1));
+              // generate a new dungeon
+              if (!game.dungeons.find(d => d.level === dungeonIndex)) {
+                game.dungeons.push(generateDungeon(game, dungeonIndex));
+              }
+
+              if (actor.playerId) {
+                // player moved down to the next level so save the game
+                console.log("Saving game, level: " + dungeonIndex);
+                saveGame(actor.playerId, dungeonIndex, game);
               }
 
               // move the actor to the next dungeons and update its record
-              const nextDungeon = game.dungeons[dungeonIndex];
-              const startRoom = nextDungeon.rooms.find(r => r.start);
-
-              // scan through all the potential start rooms looking for an empty space
-              if (startRoom) {
-                const possibleStarts: Point[] = [];
-                for (let x = 1; x < startRoom.width - 1; x++) {
-                  for (let y = 1; y < startRoom.height - 1; y++) {
-                    if (x === startRoom.width - 2 && y === 1) {
-                      continue;
-                    }
-                    if (!getActorAt(nextDungeon, startRoom.x + x, startRoom.y + y) && !blocked(nextDungeon, undefined, startRoom.x + x, startRoom.y + y)) {
-                      possibleStarts.push({ x: x + startRoom.x, y: y + startRoom.y });
-                    }
-                  }
-                }
-                // if we can find a start location then move the actor
-                // and update the player record if there is any
-                if (possibleStarts.length > 0) {
-                  const start: Point = possibleStarts[Math.floor(Math.random() * possibleStarts.length)];
-
-                  dungeon.actors.splice(dungeon.actors.indexOf(actor), 1);
-                  // for some reason Rune doesn't like me trying to reuse the actor object
-                  // here so we'll take a copy instead
-                  const newActor: Actor = copyActor(actor);
-                  newActor.dungeonId = nextDungeon.id;
-                  newActor.x = start.x;
-                  newActor.y = start.y;
-                  newActor.lx = start.x;
-                  newActor.ly = start.y;
-                  newActor.lt = 0;
-                  nextDungeon.actors.push(newActor);
-
-                  for (const info of Object.values(game.playerInfo)) {
-                    if (info.actorId === actor.id) {
-                      info.dungeonId = nextDungeon.id;
-                    }
-                  }
-
-                  addGameEvent(game, newActor.id, "stairs", 0, actor.x, actor.y, dungeon.id);
-                  actor = newActor;
-                } else {
-                  errorLog("No start places in new dungeon");
-                }
-              } else {
-                errorLog("No start room in new dungeon");
+              const nextDungeon = game.dungeons.find(d => d.level === dungeonIndex);
+              if (nextDungeon) {
+                actor = startDungeon(game, actor, nextDungeon, dungeon);
               }
             }
           }
@@ -526,17 +667,50 @@ Rune.initLogic({
       possibleMoves: [],
       lastUpdate: 0,
       events: [],
+      time: 0,
+      saveLevel: 0,
     }
 
     initialState.dungeons.push(generateDungeon(initialState, 1));
     return initialState;
   },
+  persistPlayerData: true,
   actions: {
+    selectSave: ({ saveIndex }, context) => {
+      const saves = context.game.persisted[context.playerId]?.saves;
+      if (saves && saves[saveIndex]) {
+        context.game.whoseSave = context.playerId;
+        context.game.saveDesc = saves[saveIndex].desc;
+        context.game.saveLevel = saves[saveIndex].level;
+
+        // move the save to the start since we're going to use
+        // it throughout
+        const save = saves[saveIndex];
+        saves.splice(saves.indexOf(save), 1);
+        saves.splice(0, 0, save);
+
+        console.log(saves);
+
+        context.game.gold = 0;
+        context.game.deadHeroes = [];
+        context.game.possibleMoves = [];
+        context.game.events = [];
+        context.game.items = JSON.parse(JSON.stringify(save.items));
+        context.game.dungeons = [];
+        enterDungeonAt(context.game, save.level);
+      }
+    },
+
+    setTime: ({ time }, context) => {
+      context.game.time = time;
+    },
+
     // The player has selected which class of player they want to play. We need
     // to create an actor in the world of the right type of them at one of the possible
     // start locations for the level. Now it might be better to place them near existing heroes
     // so they don't have to walk all the way to them?
-    setPlayerType: ({ type }, context) => {
+    setPlayerType: ({ name, type }, context) => {
+
       // For some reason I'm getting this action multiple times when I'm not expecting it - possibly
       // because its fired off a Javascript event listener and someone is tapping twice quickly. This
       // guard prevents us adding people more than once
@@ -545,79 +719,25 @@ Rune.initLogic({
         return;
       }
 
-      // find a start poisiton for our player based on the start rooms
-      const dungeon = context.game.dungeons[context.game.dungeons.length - 1];
-      const mainStartRoom = dungeon.rooms.find(r => r.start);
-      if (mainStartRoom) {
-        // consider all the spaces in the start room and if they are
-        // free add them to a potential list of starts
-        const possibleStarts: Point[] = [];
-        const startRooms: Room[] = [];
-
-        // find any heroes in the dungeon already
-        const heroes: Actor[] = [];
-        context.game.dungeons.forEach(d => heroes.push(...d.actors.filter(a => a.good)));
-
-        // if there aren't any heroes, just use the main start room
-        if (heroes.length === 0) {
-          startRooms.push(mainStartRoom);
-        } else {
-          // otherwise try and place the new hero somewhere near the 
-          // existing ones
-          for (const hero of heroes) {
-            const dungeon = getDungeonById(context.game, hero.dungeonId);
-            if (dungeon) {
-              const room = getRoomAt(dungeon, hero.x, hero.y);
-              if (room && !startRooms.includes(room)) {
-                startRooms.push(room);
-              }
-            }
-          }
+      if (!context.game.whoseSave) {
+        let saves = context.game.persisted[context.playerId]?.saves;
+        // brand new game - so create a new save
+        const save: SaveGame = {
+          savedAt: context.game.time + Rune.gameTime(),
+          items: [],
+          level: 0,
+          desc: Object.keys(context.game.playerInfo).map(id => context.game.playerInfo[id]?.name ?? "").join(",")
+        }
+        if (!saves) {
+          saves = context.game.persisted[context.playerId].saves = [];
         }
 
-        // scan through all the potential start rooms looking for an empty space
-        for (const room of startRooms) {
-          for (let x = 1; x < room.width - 1; x++) {
-            for (let y = 1; y < room.height - 1; y++) {
-              if (x === room.width - 2 && y === 1) {
-                continue;
-              }
-              if (!getActorAt(dungeon, room.x + x, room.y + y) && !blocked(dungeon, undefined, room.x + x, room.y + y)) {
-                possibleStarts.push({ x: x + room.x, y: y + room.y });
-              }
-            }
-          }
-        }
-
-        // if we've found somewhere the player can start create their actor based on the
-        // character class they chose and add it to the world. 
-        if (possibleStarts.length > 0) {
-          const start: Point = possibleStarts[Math.floor(Math.random() * possibleStarts.length)];
-          const actor: Actor = createActor(context.game, PLAYER_CLASS_DEFS[type], dungeon.id, start.x, start.y);
-          context.game.playerInfo[context.playerId] = {
-            dungeonId: dungeon.id,
-            type,
-            actorId: actor.id
-          };
-          dungeon.actors.push(actor);
-        } else {
-          errorLog("No Start Positions!");
+        saves.splice(0, 0, save);
+        if (saves.length > 3) {
+          saves.splice(3, saves.length - 3);
         }
       }
-      // add the player to the player order so they can take a turn
-      context.game.playerOrder.splice(context.game.playerOrder.length - 1, 0, context.playerId);
-
-      // evaluate whose turn it is, because when we add a new player
-      // it might immediately be their turn or it might change
-      // the moves available 
-      const whoseMove = context.game.playerInfo[context.game.whoseTurn];
-      if (whoseMove && whoseMove.actorId) {
-        const actor = getActorById(context.game, dungeon.id, whoseMove.actorId);
-        if (actor) {
-          // calculate all the possible moves from this position
-          calcMoves(context.game, actor);
-        }
-      }
+      joinGame(context.game, context.playerId, type, name);
     },
     // The player has selected a move to make from the calculated moves. Set up
     // the current activity to be played out for that move

@@ -94,7 +94,7 @@ export function generateDungeon(game: GameState, level: number): Dungeon {
 
     // the target number of rooms to create - levels get bigger
     // as you go down
-    const targetCount = 10 + Math.floor(level / 3);
+    const targetCount = 3; //10 + Math.floor(level / 3);
     // guard condition for the rare case
     // we can't place 20 rooms
     let maxCycles = 1000;
@@ -238,9 +238,7 @@ export function generateDungeon(game: GameState, level: number): Dungeon {
 // for multiple levels
 export function getDungeonById(state: GameState, id: number): Dungeon | undefined {
     const result = state.dungeons.find(d => d.id === id);
-    if (!result) {
-        errorLog("Dungeon with ID: " + id + " not found");
-    }
+    
     return result;
 }
 

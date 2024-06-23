@@ -15,7 +15,7 @@ import sfxClickUrl from "./assets/click.mp3";
 import sfxGlugUrl from "./assets/glug.mp3";
 import sfxAbilityUrl from "./assets/ability.mp3";
 
-import { GameEvent, GameState, GameUpdate, STEP_TIME, isTargetedMove } from "./logic";
+import { GameActions, GameEvent, GameState, Persisted, STEP_TIME, isTargetedMove } from "./logic";
 import { Actor } from "./actor";
 import { getActorAt, getActorById, getChestAt, getDoorAt, getDungeonById, getRoomAt, getWallAt } from "./dungeon";
 import { PLAYER_CLASS_DEFS, PlayerClass, PlayerInfo } from "./player";
@@ -24,6 +24,7 @@ import { intersects } from "./renderer/util";
 import { Sound, loadSound, playSound } from "./renderer/sound";
 import { errorLog } from "./log";
 import { ItemInfo, getItemInfo } from "./items";
+import { OnChangeParams } from "rune-games-sdk";
 
 /**
  * Dungeons of Glee
@@ -83,7 +84,7 @@ export class DungeonsOfGlee implements InputEventListener {
 
     // state maintained between clients
     game?: GameState;
-    state?: GameUpdate;
+    state?: OnChangeParams<GameState, GameActions, Persisted>;
     localPlayerId?: string;
 
     // an animation ticker
@@ -160,6 +161,10 @@ export class DungeonsOfGlee implements InputEventListener {
     lootOpen = false;
 
     selectedItemIndex = -1;
+
+    showSaveGameScreen = false;
+
+    inited = false;
 
     constructor() {
         // register ourselves as the input listener so
@@ -251,12 +256,26 @@ export class DungeonsOfGlee implements InputEventListener {
         }
 
         playSound(this.sfxClick);
+        if (this.showSaveGameScreen) {
+            const selected = Math.floor((y - 75) / 100);
+            if (selected >= 0 && selected < 3) {
+                Rune.actions.selectSave({ saveIndex: selected });
+                this.showSaveGameScreen = false;    
+            } else {
+                this.showSaveGameScreen = false;    
+            }
+            return;
+        }
+
         // if we haven't seleccted a class yet then using the y mouse position
         // determine which class the player selected
         if (!this.localPlayerClass) {
             const selected = Math.floor((y - 180) / 70);
             if (this.classes[selected]) {
-                Rune.actions.setPlayerType({ type: this.classes[selected].type });
+                Rune.actions.setPlayerType({ name: Rune.getPlayerInfo(this.localPlayerId ?? "").displayName, type: this.classes[selected].type });
+            }
+            if (selected === 4) {
+                this.showSaveGameScreen = true;
             }
         } else {
             if (this.isDead) {
@@ -336,6 +355,12 @@ export class DungeonsOfGlee implements InputEventListener {
     start(): void {
         Rune.initClient({
             onChange: (game) => {
+                if (!this.inited) {
+                    this.inited = true;
+                    setTimeout(() => {
+                        Rune.actions.setTime({ time: Date.now() });
+                    }, 0)
+                }
                 this.gameUpdate(game);
             },
         });
@@ -344,7 +369,7 @@ export class DungeonsOfGlee implements InputEventListener {
     }
 
     // Callback from Rune when the game state has changed
-    gameUpdate(state: GameUpdate) {
+    gameUpdate(state: OnChangeParams<GameState, GameActions, Persisted>) {
         // record our player ID
         this.localPlayerId = state.yourPlayerId;
 
@@ -492,7 +517,7 @@ export class DungeonsOfGlee implements InputEventListener {
             }
         }
         // we're going down the stairs so start the fade in / out
-        if (event.type === "stairs") {
+        if (event.type === "stairs" && event.actorId === this.myActor?.id) {
             this.playSound(this.sfxStairs);
             this.stairsEvent = event;
             this.stairsFade = 0;
@@ -530,15 +555,54 @@ export class DungeonsOfGlee implements InputEventListener {
             // if we don't currently have a player class then show
             // the class selection screen
             if (!this.localPlayerClass && this.localPlayerId) {
-                drawImage(this.logo, Math.floor((screenWidth() / 2) - (this.logo.width / 2)), 10, this.logo.width, this.logo.height);
-                drawImage(this.cokeandcode, Math.floor((screenWidth() / 2) - (this.cokeandcode.width / 2)), screenHeight() - this.cokeandcode.height - 20, this.cokeandcode.width, this.cokeandcode.height);
-                centerText("Select Your Hero", 20, 160, "white");
-                let p = 0;
-                for (const clazz of this.classes) {
-                    fillRect(cx - 90, 180 + (p * 70), 180, 64, "rgb(40,40,40)");
-                    drawTile(this.tiles, cx - 80, 180 + (p * 70), clazz.sprite, 64, 64);
-                    drawText(cx - 10, 220 + (p * 70), clazz.name, 24, "white");
-                    p++;
+                if (this.showSaveGameScreen) {
+                    let p = 0;
+                    for (const save of this.game.persisted?.[this.localPlayerId]?.saves ?? []) {
+                        let desc = save.desc.replace(Rune.getPlayerInfo(this.localPlayerId).displayName, "");
+                        if (desc.startsWith(",")) {
+                            desc = desc.substring(1);
+                        }
+                        fillRect(cx - 150, 80 + (p * 100), 300, 95, "rgb(40,40,40)");
+                        drawTile(this.tiles, cx + 80, 75 + (p * 100), 60, 64, 64);
+                        drawText(cx - 140, 108 + (p * 100), "Level " + save.level, 24, "white");
+
+                        drawText(cx - 140, 126 + (p * 100), "Items: " + (save.items.length), 14, "white");
+
+                        if (desc.length > 0) {
+                            drawText(cx - 140, 150 + (p * 100), "Played " + Math.floor((Date.now() - save.savedAt) / (1000 * 60 * 60 * 24)) + " days ago with:", 14, "white");
+                            drawText(cx - 140, 166 + (p * 100), desc, 14, "white");
+                        } else {
+                            drawText(cx - 140, 150 + (p * 100), "Played " + Math.floor((Date.now() - save.savedAt) / (1000 * 60 * 60 * 24)) + " days ago, solo.", 14, "white");
+                        }
+                        p++;
+                    }
+                    p = 4;
+                    fillRect(cx - 90, 190 + (p * 70), 180, 64, "rgb(40,40,40)");
+                    drawTile(this.tiles, cx - 80, 190 + (p * 70), 77, 64, 64);
+                    drawText(cx - 10, 230 + (p * 70), "Back", 24, "white");
+                } else {
+                    drawImage(this.logo, Math.floor((screenWidth() / 2) - (this.logo.width / 2)), 10, this.logo.width, this.logo.height);
+                    drawImage(this.cokeandcode, Math.floor((screenWidth() / 2) - (this.cokeandcode.width / 2)), screenHeight() - this.cokeandcode.height - 20, this.cokeandcode.width, this.cokeandcode.height);
+                    centerText("Select Your Hero", 20, 160, "white");
+                    let p = 0;
+                    for (const clazz of this.classes) {
+                        fillRect(cx - 90, 180 + (p * 70), 180, 64, "rgb(40,40,40)");
+                        drawTile(this.tiles, cx - 80, 180 + (p * 70), clazz.sprite, 64, 64);
+                        drawText(cx - 10, 220 + (p * 70), clazz.name, 24, "white");
+                        p++;
+                    }
+
+                    if (this.game.whoseSave) {
+                        const name = Rune.getPlayerInfo(this.game.whoseSave).displayName;
+                        centerText(name, 16, 210 + (p*70), "white");
+                        centerText("selected a level " + this.game.saveLevel + " start!", 16, 230 + (p*70), "white");
+                    } else {
+                        if (this.game.persisted?.[this.localPlayerId]?.saves?.length ?? 0 > 0) {
+                            fillRect(cx - 90, 190 + (p * 70), 180, 64, "rgb(40,40,40)");
+                            drawTile(this.tiles, cx - 80, 190 + (p * 70), 60, 64, 64);
+                            drawText(cx - 10, 230 + (p * 70), "Load", 24, "white");
+                        }
+                    }
                 }
             } else {
                 // otherwise render the dungeon area since we're in 

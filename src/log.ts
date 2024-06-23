@@ -1,5 +1,5 @@
 export function errorLog(...args: unknown[]) {
-    console.log("ERROR: ", ...args);
+    console.error("ERROR: ", ...args);
 }
 
 export function debugLog(...args: unknown[]) {

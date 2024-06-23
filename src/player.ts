@@ -60,6 +60,7 @@ export interface PlayerInfo {
   type: PlayerClass;
   actorId: number;
   dungeonId: number;
+  name: string;
 }
 
 export function findActiveHero(game: GameState): Actor | undefined {
