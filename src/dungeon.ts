@@ -93,7 +93,7 @@ export function generateDungeon(game: GameState, level: number): Dungeon {
 
     // the target number of rooms to create - levels get bigger
     // as you go down
-    const targetCount = 3; //10 + Math.floor(level / 3);
+    const targetCount = 10 + Math.floor(level / 3);
     // guard condition for the rare case
     // we can't place 20 rooms
     let maxCycles = 1000;
