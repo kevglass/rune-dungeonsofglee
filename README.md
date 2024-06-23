@@ -2,6 +2,10 @@
 
 ![image](https://github.com/kevglass/dungeonsofglee/assets/3787210/1b23592d-40c5-4560-ac5f-1387782eaa78)
 
+_All game assets are licensed for use in these projects. They remain copyright of their authors._
+
+_You can find the rest of my rune games here https://github.com/kevglass/rune-games_
+
 This is a rough hack up making using the Rune.ai SDK (https://rune.ai). I wanted to see what its all about and ended up recreating one of my dungeon
 games. 
 
