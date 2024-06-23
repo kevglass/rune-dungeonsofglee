@@ -1,5 +1,6 @@
 
-const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const AudioContext = window.AudioContext || (window as unknown as any).webkitAudioContext;
 const audioContext: AudioContext = new AudioContext();
 audioContext.resume();
 

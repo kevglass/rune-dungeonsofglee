@@ -193,7 +193,7 @@ export function createMonster(game: GameState, type: string, dungeonId: number, 
     if (!def) {
         errorLog("Monster type: " + type + " not found");
     }
-    return createActor(game, def, dungeonId, x, y); 
+    return createActor("", game, def, dungeonId, x, y); 
 }
 
 // find any monsters that are potentially able to move at this point

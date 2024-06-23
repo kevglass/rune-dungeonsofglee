@@ -1,4 +1,4 @@
-import type { PlayerId, Players, RuneClient } from "rune-games-sdk/multiplayer"
+import type { PlayerId, RuneClient } from "rune-games-sdk/multiplayer"
 import { PLAYER_CLASS_DEFS, PlayerClass, PlayerInfo, findActiveHero } from "./player";
 import { Actor, copyActor, createActor } from "./actor";
 import { blocked, calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getChestAt, getDungeonById, getRoomAt, Point, Room } from "./dungeon";

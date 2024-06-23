@@ -1,6 +1,5 @@
 import { Actor } from "./actor";
 import { ItemType, rollChestItem } from "./items";
-import { errorLog } from "./log";
 import { GameMove, GameState } from "./logic";
 import { createMonster, getRandomMonster } from "./monsters";
 
