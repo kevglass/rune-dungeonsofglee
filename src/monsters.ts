@@ -160,6 +160,7 @@ const MONSTER_DEFS: Record<string, ActorDef> = {
 }
 
 export function getRandomMonster(level: number): string {
+    console.log("GRM: " + level);
     const possible: string[] = [];
     for (const defId in MONSTER_DEFS) {
         const def = MONSTER_DEFS[defId];

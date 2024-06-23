@@ -77,6 +77,7 @@ export interface SaveGame {
   items: Item[];
   level: number;
   desc: string;
+  gold: number;
 }
 
 export interface Persisted {
@@ -217,10 +218,12 @@ function saveGame(playerId: string, dungeonIndex: number, game: GameState): void
         savedAt: game.time + Rune.gameTime(),
         level: 0,
         items: [],
-        desc: Object.keys(game.playerInfo).map(id => game.playerInfo[id]?.name ?? "").join(",")
+        desc: Object.keys(game.playerInfo).map(id => game.playerInfo[id]?.name ?? "").join(","),
+        gold: 0
       }
     }
     saveGames[0].level = dungeonIndex;
+    saveGames[0].gold = game.gold;
     saveGames[0].items = JSON.parse(JSON.stringify(game.items));
     saveGames[0].desc = Object.keys(game.playerInfo).map(id => game.playerInfo[id]?.name ?? "").join(",");
   }
@@ -547,8 +550,8 @@ function applyCurrentActivity(game: GameState): boolean {
               const dungeonIndex = dungeon.level + 1;
               // if we're the first one to reach this level, then 
               // generate a new dungeon
-              if (!game.dungeons.find(d => d.level === dungeonIndex)) {
-                game.dungeons.push(generateDungeon(game, dungeonIndex));
+              if (!game.dungeons.find(d => d.level === dungeonIndex+1)) {
+                game.dungeons.push(generateDungeon(game, dungeonIndex+1));
               }
 
               if (actor.playerId) {
@@ -558,7 +561,7 @@ function applyCurrentActivity(game: GameState): boolean {
               }
 
               // move the actor to the next dungeons and update its record
-              const nextDungeon = game.dungeons.find(d => d.level === dungeonIndex);
+              const nextDungeon = game.dungeons.find(d => d.level === dungeonIndex+1);
               if (nextDungeon) {
                 actor = startDungeon(game, actor, nextDungeon, dungeon);
               }
@@ -681,23 +684,20 @@ Rune.initLogic({
       if (saves && saves[saveIndex]) {
         context.game.whoseSave = context.playerId;
         context.game.saveDesc = saves[saveIndex].desc;
-        context.game.saveLevel = saves[saveIndex].level;
+        context.game.saveLevel = saves[saveIndex].level + 1;
 
         // move the save to the start since we're going to use
         // it throughout
         const save = saves[saveIndex];
         saves.splice(saves.indexOf(save), 1);
         saves.splice(0, 0, save);
-
-        console.log(saves);
-
-        context.game.gold = 0;
+        context.game.gold = save.gold;
         context.game.deadHeroes = [];
         context.game.possibleMoves = [];
         context.game.events = [];
         context.game.items = JSON.parse(JSON.stringify(save.items));
         context.game.dungeons = [];
-        enterDungeonAt(context.game, save.level);
+        enterDungeonAt(context.game, save.level+1);
       }
     },
 
@@ -726,7 +726,8 @@ Rune.initLogic({
           savedAt: context.game.time + Rune.gameTime(),
           items: [],
           level: 0,
-          desc: Object.keys(context.game.playerInfo).map(id => context.game.playerInfo[id]?.name ?? "").join(",")
+          desc: Object.keys(context.game.playerInfo).map(id => context.game.playerInfo[id]?.name ?? "").join(","),
+          gold: 0
         }
         if (!saves) {
           saves = context.game.persisted[context.playerId].saves = [];

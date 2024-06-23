@@ -564,7 +564,7 @@ export class DungeonsOfGlee implements InputEventListener {
                         }
                         fillRect(cx - 150, 80 + (p * 100), 300, 95, "rgb(40,40,40)");
                         drawTile(this.tiles, cx + 80, 75 + (p * 100), 60, 64, 64);
-                        drawText(cx - 140, 108 + (p * 100), "Level " + save.level, 24, "white");
+                        drawText(cx - 140, 108 + (p * 100), "Level " + (save.level+1), 24, "white");
 
                         drawText(cx - 140, 126 + (p * 100), "Items: " + (save.items.length), 14, "white");
 
