@@ -582,7 +582,6 @@ export class DungeonsOfGlee implements InputEventListener {
                     drawText(cx - 10, 230 + (p * 70), "Back", 24, "white");
                 } else {
                     drawImage(this.logo, Math.floor((screenWidth() / 2) - (this.logo.width / 2)), 10, this.logo.width, this.logo.height);
-                    drawImage(this.cokeandcode, Math.floor((screenWidth() / 2) - (this.cokeandcode.width / 2)), screenHeight() - this.cokeandcode.height - 20, this.cokeandcode.width, this.cokeandcode.height);
                     centerText("Select Your Hero", 20, 160, "white");
                     let p = 0;
                     for (const clazz of this.classes) {
