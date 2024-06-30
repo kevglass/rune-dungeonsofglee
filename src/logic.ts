@@ -1,4 +1,4 @@
-import type { PlayerId, RuneClient } from "rune-games-sdk/multiplayer"
+import type { PlayerId, DuskClient } from "dusk-games-sdk"
 import { PLAYER_CLASS_DEFS, PlayerClass, PlayerInfo, findActiveHero } from "./player";
 import { Actor, copyActor, createActor } from "./actor";
 import { blocked, calcMoves, Dungeon, findNextStep, generateDungeon, getActorAt, getActorById, getAllRoomsAt, getChestAt, getDungeonById, getRoomAt, Point, Room } from "./dungeon";
@@ -107,7 +107,7 @@ export type GameActions = {
 }
 
 declare global {
-  const Rune: RuneClient<GameState, GameActions, Persisted>;
+  const Dusk: DuskClient<GameState, GameActions, Persisted>;
 }
 
 function enterDungeonAt(game: GameState, level: number) {
@@ -215,7 +215,7 @@ function saveGame(playerId: string, dungeonIndex: number, game: GameState): void
   if (saveGames) {
     if (!saveGames[0]) {
       saveGames[0] = {
-        savedAt: game.time + Rune.gameTime(),
+        savedAt: game.time + Dusk.gameTime(),
         level: 0,
         items: [],
         desc: Object.keys(game.playerInfo).map(id => game.playerInfo[id]?.name ?? "").join(","),
@@ -376,7 +376,7 @@ function kill(game: GameState, dungeon: Dungeon, target: Actor, extraDelay = 0):
     game.deadHeroes.push(target);
 
     if (!findActiveHero(game)) {
-      Rune.gameOver();
+      Dusk.gameOver();
     }
   } else {
     // do the loot!
@@ -397,7 +397,7 @@ function kill(game: GameState, dungeon: Dungeon, target: Actor, extraDelay = 0):
 // the next step in the path or the actual action at the end
 function applyCurrentActivity(game: GameState): boolean {
   if (game.currentActivity) {
-    game.lastUpdate = Rune.gameTime();
+    game.lastUpdate = Dusk.gameTime();
 
     const dungeon = getDungeonById(game, game.currentActivity.dungeonId);
     if (dungeon) {
@@ -413,7 +413,7 @@ function applyCurrentActivity(game: GameState): boolean {
         if (nextStep && nextStep.type === "move") {
           actor.lx = actor.x;
           actor.ly = actor.y;
-          actor.lt = Rune.gameTime();
+          actor.lt = Dusk.gameTime();
           actor.x = nextStep.x;
           actor.y = nextStep.y;
           actor.moves--;
@@ -617,7 +617,7 @@ function takeEvilTurn(game: GameState): void {
             actorId: monster.id,
             tx: attackMove.x,
             ty: attackMove.y,
-            startTime: Rune.gameTime()
+            startTime: Dusk.gameTime()
           }
         }
 
@@ -632,7 +632,7 @@ function takeEvilTurn(game: GameState): void {
             actorId: monster.id,
             tx: bestMove.x,
             ty: bestMove.y,
-            startTime: Rune.gameTime()
+            startTime: Dusk.gameTime()
           }
         } else {
           monster.moves = 0;
@@ -651,7 +651,7 @@ function takeEvilTurn(game: GameState): void {
 
 // This is the Rune boostrap - its how the server and the client are synchronized by running
 // the same game simulation in all places.
-Rune.initLogic({
+Dusk.initLogic({
   minPlayers: 1,
   maxPlayers: 4,
   setup: (allPlayerIds): GameState => {
@@ -723,7 +723,7 @@ Rune.initLogic({
         let saves = context.game.persisted[context.playerId]?.saves;
         // brand new game - so create a new save
         const save: SaveGame = {
-          savedAt: context.game.time + Rune.gameTime(),
+          savedAt: context.game.time + Dusk.gameTime(),
           items: [],
           level: 0,
           desc: Object.keys(context.game.playerInfo).map(id => context.game.playerInfo[id]?.name ?? "").join(","),
@@ -745,7 +745,7 @@ Rune.initLogic({
     makeMove: ({ x, y }, context) => {
       if (context.game.whoseTurn === context.playerId) {
         const move = context.game.possibleMoves.find(m => m.x === x && m.y === y);
-        const time = Rune.gameTime();
+        const time = Dusk.gameTime();
         if (move) {
           context.game.currentActivity = {
             dungeonId: context.game.playerInfo[context.playerId].dungeonId,
@@ -792,7 +792,7 @@ Rune.initLogic({
 
     // we're running the game at 15 FPS because we want the smooth gameTime() tick, however
     // the logic itself doesn't need to run that quickly (we're only taking a logic step)
-    if (Rune.gameTime() - context.game.lastUpdate > STEP_TIME) {
+    if (Dusk.gameTime() - context.game.lastUpdate > STEP_TIME) {
       if (!applyCurrentActivity(context.game)) {
         if (context.game.whoseTurn === "evil") {
           // run evil game updates

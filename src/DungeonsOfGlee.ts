@@ -24,7 +24,7 @@ import { intersects } from "./renderer/util";
 import { Sound, loadSound, playSound } from "./renderer/sound";
 import { errorLog } from "./log";
 import { ItemInfo, getItemInfo } from "./items";
-import { OnChangeParams } from "rune-games-sdk";
+import { OnChangeParams } from "dusk-games-sdk";
 
 /**
  * Dungeons of Glee
@@ -259,7 +259,7 @@ export class DungeonsOfGlee implements InputEventListener {
         if (this.showSaveGameScreen) {
             const selected = Math.floor((y - 75) / 100);
             if (selected >= 0 && selected < 3) {
-                Rune.actions.selectSave({ saveIndex: selected });
+                Dusk.actions.selectSave({ saveIndex: selected });
                 this.showSaveGameScreen = false;    
             } else {
                 this.showSaveGameScreen = false;    
@@ -272,14 +272,14 @@ export class DungeonsOfGlee implements InputEventListener {
         if (!this.localPlayerClass) {
             const selected = Math.floor((y - 180) / 70);
             if (this.classes[selected]) {
-                Rune.actions.setPlayerType({ name: Rune.getPlayerInfo(this.localPlayerId ?? "").displayName, type: this.classes[selected].type });
+                Dusk.actions.setPlayerType({ name: Dusk.getPlayerInfo(this.localPlayerId ?? "").displayName, type: this.classes[selected].type });
             }
             if (selected === 4) {
                 this.showSaveGameScreen = true;
             }
         } else {
             if (this.isDead) {
-                Rune.actions.clearType();
+                Dusk.actions.clearType();
                 return;
             }
 
@@ -305,7 +305,7 @@ export class DungeonsOfGlee implements InputEventListener {
                             const info: ItemInfo = getItemInfo(selectedItem.type);
                             if (!info.onlyUsedBy || info.onlyUsedBy.includes(this.myPlayerInfo.type)) {
                                 // use the item
-                                Rune.actions.useItem({ id: selectedItem.id });
+                                Dusk.actions.useItem({ id: selectedItem.id });
                             }
                         }
 
@@ -335,7 +335,7 @@ export class DungeonsOfGlee implements InputEventListener {
                     const move = this.game.possibleMoves.find(m => m.x === tx && m.y === ty);
                     const actor = getActorAt(dungeon, tx, ty);
                     if (move && (!actor || isTargetedMove(move.type))) {
-                        Rune.actions.makeMove({ x: tx, y: ty });
+                        Dusk.actions.makeMove({ x: tx, y: ty });
                     }
                 }
             }
@@ -344,7 +344,7 @@ export class DungeonsOfGlee implements InputEventListener {
             if (intersects(x, y, screenWidth() - 112, screenHeight() - 109, 114, 47)) {
                 // pressed end turn
                 if (this.myTurn) {
-                    Rune.actions.endTurn();
+                    Dusk.actions.endTurn();
                 }
             }
         }
@@ -353,12 +353,12 @@ export class DungeonsOfGlee implements InputEventListener {
     // start the game. This is a simple boostrap to start Rune's client
     // and beging the rendering loop
     start(): void {
-        Rune.initClient({
+        Dusk.initClient({
             onChange: (game) => {
                 if (!this.inited) {
                     this.inited = true;
                     setTimeout(() => {
-                        Rune.actions.setTime({ time: Date.now() });
+                        Dusk.actions.setTime({ time: Date.now() });
                     }, 0)
                 }
                 this.gameUpdate(game);
@@ -558,7 +558,7 @@ export class DungeonsOfGlee implements InputEventListener {
                 if (this.showSaveGameScreen) {
                     let p = 0;
                     for (const save of this.game.persisted?.[this.localPlayerId]?.saves ?? []) {
-                        let desc = save.desc.replace(Rune.getPlayerInfo(this.localPlayerId).displayName, "");
+                        let desc = save.desc.replace(Dusk.getPlayerInfo(this.localPlayerId).displayName, "");
                         if (desc.startsWith(",")) {
                             desc = desc.substring(1);
                         }
@@ -592,7 +592,7 @@ export class DungeonsOfGlee implements InputEventListener {
                     }
 
                     if (this.game.whoseSave) {
-                        const name = Rune.getPlayerInfo(this.game.whoseSave).displayName;
+                        const name = Dusk.getPlayerInfo(this.game.whoseSave).displayName;
                         centerText(name, 16, 210 + (p*70), "white");
                         centerText("selected a level " + this.game.saveLevel + " start!", 16, 230 + (p*70), "white");
                     } else {
@@ -914,7 +914,7 @@ export class DungeonsOfGlee implements InputEventListener {
                 y = this.stairsEvent.y;
             }
 
-            const delta = Rune.gameTime() - this.myActor.lt;
+            const delta = Dusk.gameTime() - this.myActor.lt;
             if (delta < STEP_TIME) {
                 const lerp = delta / STEP_TIME;
                 x = (this.myActor.x * lerp) + (this.myActor.lx * (1 - lerp));
@@ -1003,7 +1003,7 @@ export class DungeonsOfGlee implements InputEventListener {
                     // from one tile to another
                     let x = actor.x;
                     let y = actor.y;
-                    const delta = Rune.gameTime() - actor.lt;
+                    const delta = Dusk.gameTime() - actor.lt;
                     if (delta < STEP_TIME) {
                         const lerp = delta / STEP_TIME;
                         x = (actor.x * lerp) + (actor.lx * (1 - lerp));
