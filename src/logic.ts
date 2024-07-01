@@ -814,6 +814,7 @@ Dusk.initLogic({
   // for instance from Rune.gameTime() to synchronize movements you need to have
   // this reasonable high to get a smooth tick.
   updatesPerSecond: 15,
+  reactive: false,
   events: {
     // called when a new player joins the game - this is part of the Rune 
     // framework. Gotcha here - this isn't called for players that are part
