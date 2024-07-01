@@ -9,7 +9,7 @@
     "build": "npm run lint && tsc && vite build",
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives",
     "preview": "vite preview",
-    "deploy": "npm run build && rune upload --name 'Dungeons of Glee'"
+    "deploy": "npm run build && dusk upload --name 'Dungeons of Glee'"
   },
   "dependencies": {
     "dusk-games-sdk": "^4.19.17"
